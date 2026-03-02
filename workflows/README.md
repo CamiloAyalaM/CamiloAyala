@@ -72,11 +72,34 @@ Corre domingos o cuando es llamado por ANALYST:
 6. Envía informe semanal a Telegram
 7. Responde al webhook de ANALYST con los insights (JSON)
 
-## Telegram — Flujo de Aprobación
+## Telegram — Arquitectura de Entrada Única
 
-Webhook del bot: `https://n8n.camiloayala.net/webhook/ma-telegram-v2`
+**COMMANDS es el único punto de entrada para todos los mensajes de Telegram.**
+
+```
+Telegram Bot
+    │
+    ▼
+[MA] COMMANDS  /webhook/ma-bot-commands
+    │
+    ├─ /generar /scout /analizar /feedback  → dispara workflow correspondiente
+    ├─ /estado /temas /metricas             → lee Sheets y responde con datos
+    ├─ /ayuda /start / desconocido          → mensaje de ayuda
+    └─ callback_query (botones de aprobación)
+            │
+            ▼ POST (reenvío como objeto JSON)
+       [MA] WRITER  /webhook/ma-writer-callback
+```
+
+| Webhook                  | Path                    | Propósito                                 |
+|--------------------------|-------------------------|-------------------------------------------|
+| COMMANDS (entrada única) | `ma-bot-commands`       | Recibe TODOS los mensajes de Telegram     |
+| WRITER (solo callbacks)  | `ma-writer-callback`    | Solo recibe callbacks reenviados por COMMANDS |
 
 Callback format: `v2|aprobar|{tema_id}` / `v2|rechazar|{tema_id}` / `v2|regenerar|{tema_id}`
+
+> **Nota**: El nodo `Detectar Tipo Mensaje` en COMMANDS pasa el objeto `body` directamente
+> (sin `JSON.stringify`) al nodo `Reenviar Callback`, que lo envía al WRITER como JSON válido.
 
 ## Scripts de Build / Update
 
@@ -88,6 +111,7 @@ Callback format: `v2|aprobar|{tema_id}` / `v2|rechazar|{tema_id}` / `v2|regenera
 | `update_analyst_v2.py`          | Actualiza ANALYST → LinkedIn API (v2)      |
 | `build_feedback.py`             | Crea FEEDBACK (Ciclo de Aprendizaje)       |
 | `update_writer_humanizer.py`    | Agrega few-shot examples al Humanizador    |
+| `fix_callback_forwarding.py`    | Corrige reenvío de callbacks y webhook duplicado (Bug 1 + Bug 2) |
 
 ## Costo Total: $0
 
