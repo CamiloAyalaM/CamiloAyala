@@ -373,9 +373,10 @@ def build():
 
     connect(conn, detectar["name"], router["name"])
 
-    # Trigger branch
+    # Trigger branch: ack a Telegram + llamar webhook en paralelo desde prep_tg
+    # IMPORTANTE: call_wh NO va después de tg_ack porque $json perdería webhook_url
     connect(conn, prep_tg["name"],  tg_ack["name"])
-    connect(conn, tg_ack["name"],   call_wh["name"])
+    connect(conn, prep_tg["name"],  call_wh["name"])
 
     # Query branch
     connect(conn, leer_t["name"],   merge_q["name"], inp=0)

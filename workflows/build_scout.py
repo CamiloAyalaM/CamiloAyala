@@ -18,7 +18,23 @@ HEADERS  = {"X-N8N-API-KEY": API_KEY, "Content-Type": "application/json"}
 SHEETS_ID   = "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI"
 TEMAS_GID   = 1090471100
 CHAT_ID     = "1160149765"
-BOT_TOKEN   = "BOT_TOKEN"
+
+def _get_bot_token():
+    """Extrae el token del bot desde el workflow WRITER ya desplegado."""
+    try:
+        r = requests.get(f"{BASE_URL}/workflows", headers=HEADERS, timeout=10)
+        for wf in r.json().get("data", []):
+            for node in wf.get("nodes", []):
+                url = node.get("parameters", {}).get("url", "")
+                if "api.telegram.org/bot" in url:
+                    token = url.split("/bot")[1].split("/")[0]
+                    if token and len(token) > 20:
+                        return token
+    except Exception:
+        pass
+    return "BOT_TOKEN"
+
+BOT_TOKEN   = _get_bot_token()
 QWEN        = "qwen2.5:32b"
 CRED_SHEETS = {"id": "59A9Vs89LRQlZq9m", "name": "Google Sheets account"}
 CRED_OLLAMA = {"id": "S4LeOiFztrgDaMM9", "name": "Ollama"}

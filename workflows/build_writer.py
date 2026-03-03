@@ -16,7 +16,23 @@ TEMAS_GID      = 1090471100
 METRICAS_GID   = 830260036
 RECHAZOS_GID   = 148549058
 CHAT_ID        = "1160149765"
-BOT_TOKEN      = "BOT_TOKEN"
+
+def _get_bot_token():
+    """Extrae el token del bot desde cualquier workflow ya desplegado."""
+    try:
+        r = requests.get(f"{BASE_URL}/workflows", headers=HEADERS, timeout=10)
+        for wf in r.json().get("data", []):
+            for node in wf.get("nodes", []):
+                url = node.get("parameters", {}).get("url", "")
+                if "api.telegram.org/bot" in url:
+                    token = url.split("/bot")[1].split("/")[0]
+                    if token and len(token) > 20:
+                        return token
+    except Exception:
+        pass
+    return "BOT_TOKEN"
+
+BOT_TOKEN      = _get_bot_token()
 TELEGRAM_API   = f"https://api.telegram.org/bot{BOT_TOKEN}"
 LINKEDIN_TOKEN = "LINKEDIN_BEARER_TOKEN_HERE  # set via N8N credential or env"
 LINKEDIN_AUTHOR = "urn:li:person:jAuei1KlC1"
