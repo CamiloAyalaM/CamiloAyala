@@ -5,7 +5,7 @@ Centraliza TODOS los mensajes entrantes del bot @CamiloAyalaLinkedIn_bot:
   - /generar /scout /analizar /feedback → dispara el workflow correspondiente
   - /estado /temas /metricas            → lee Sheets y responde con datos reales
   - /ayuda /start / desconocido         → mensaje de ayuda
-  - callback_query (botones)            → reenvía al WRITER (ma-telegram-v2)
+  - callback_query (botones)            → reenvía al WRITER (ma-writer-callback)
 
 Al finalizar también:
   - Actualiza el webhook del bot de Telegram a este nuevo endpoint
@@ -350,7 +350,7 @@ def build():
     # ── BRANCH 2: CALLBACK — forward to WRITER ──────────────────────────
     fwd_cb  = add(n_http_post(
         "Reenviar Callback al WRITER",
-        f"{WH_BASE}/ma-telegram-v2",
+        f"{WH_BASE}/ma-writer-callback",
         [1040, 600],
         body_json="={{ $json.full_body }}"
     ))
