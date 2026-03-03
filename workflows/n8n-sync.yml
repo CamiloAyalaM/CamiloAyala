@@ -42,6 +42,10 @@ jobs:
 
             try {
               const dir = path.join(process.cwd(), 'workflows');
+              if (!fs.existsSync(dir)) {
+                console.log('No workflows directory found. Skipping.');
+                return;
+              }
               const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
               const localWorkflows = files.map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')));
 
@@ -50,32 +54,47 @@ jobs:
 
               for (const local of localWorkflows) {
                 const existing = remoteWorkflows.find(r => r.name === local.name);
+                
+                // Extraemos el estado pero NO lo enviamos en el body principal (Error 400 fix)
+                const shouldBeActive = local.active === true;
                 const body = {
                   name: local.name,
                   nodes: local.nodes,
                   connections: local.connections,
                   settings: local.settings,
-                  staticData: local.staticData,
-                  active: local.active === true
+                  staticData: local.staticData
                 };
+
+                let workflowId;
 
                 if (existing) {
                   await api.put('/workflows/' + existing.id, body);
-                  console.log('Updated: ' + local.name);
+                  workflowId = existing.id;
+                  console.log('✅ Updated: ' + local.name);
                 } else {
-                  await api.post('/workflows', body);
-                  console.log('Created: ' + local.name);
+                  const created = await api.post('/workflows', body);
+                  workflowId = created.data.id;
+                  console.log('✨ Created: ' + local.name);
+                }
+
+                // Sincronización del estado Active/Inactive
+                try {
+                  const action = shouldBeActive ? 'activate' : 'deactivate';
+                  await api.post(\`/workflows/\${workflowId}/\${action}\`);
+                  console.log(\`  -> Status: \${action}\`);
+                } catch (statusErr) {
+                  console.log(\`  ⚠️ Could not change status for \${local.name}: \`, statusErr.response?.data?.message || statusErr.message);
                 }
               }
 
               for (const remote of remoteWorkflows) {
                 if (!localWorkflows.some(l => l.name === remote.name)) {
                   await api.delete('/workflows/' + remote.id);
-                  console.log('Deleted: ' + remote.name);
+                  console.log('🗑️ Deleted: ' + remote.name);
                 }
               }
             } catch (e) {
-              console.error(e.response?.data || e.message);
+              console.error('❌ Error:', e.response?.data || e.message);
               process.exit(1);
             }
           }
