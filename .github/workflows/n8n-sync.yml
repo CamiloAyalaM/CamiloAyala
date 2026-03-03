@@ -1,0 +1,85 @@
+name: 🚀 n8n Business GitOps Sync
+
+on:
+  push:
+    branches: [ main ] # Cambia a "claude/n8n-automation-sync" si quieres probar en esa rama primero
+    paths:
+      - 'workflows/**'
+  workflow_dispatch: # Permite ejecutarlo manualmente con un botón
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📂 Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with: { node-version: 20 }
+
+      - name: 📦 Install Axios
+        run: npm install axios
+
+      - name: 🔄 Sync Workflows to n8n
+        env:
+          N8N_URL: ${{ secrets.N8N_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          node -e "
+          const axios = require('axios');
+          const fs = require('fs');
+          const path = require('path');
+
+          const api = axios.create({
+            baseURL: process.env.N8N_URL.replace(/\/$/, '') + '/api/v1',
+            headers: { 'X-N8N-API-KEY': process.env.N8N_API_KEY }
+          });
+
+          async function startSync() {
+            try {
+              // 1. Cargar locales
+              const dir = path.join(process.cwd(), 'workflows');
+              const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+              const localWorkflows = files.map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')));
+
+              // 2. Obtener remotos
+              const { data: { data: remoteWorkflows } } = await api.get('/workflows');
+
+              console.log('--- Iniciando Sincronización ---');
+
+              // 3. UPSERT (Crear o Actualizar)
+              for (const local of localWorkflows) {
+                const existing = remoteWorkflows.find(r => r.name === local.name);
+                const payload = {
+                  name: local.name,
+                  nodes: local.nodes,
+                  connections: local.connections,
+                  settings: local.settings,
+                  staticData: local.staticData,
+                  active: local.active
+                };
+
+                if (existing) {
+                  await api.put('/workflows/' + existing.id, payload);
+                  console.log('✅ Actualizado: ' + local.name);
+                } else {
+                  await api.post('/workflows', payload);
+                  console.log('✨ Creado: ' + local.name);
+                }
+              }
+
+              // 4. PRUNE (Borrar si no está en Git)
+              for (const remote of remoteWorkflows) {
+                if (!localWorkflows.some(l => l.name === remote.name)) {
+                  await api.delete('/workflows/' + remote.id);
+                  console.log('🗑️ Eliminado: ' + remote.name + ' (No está en el repo)');
+                }
+              }
+            } catch (err) {
+              console.error('❌ Error:', err.response?.data || err.message);
+              process.exit(1);
+            }
+          }
+          startSync();
+          "
