@@ -25,6 +25,7 @@ CRED_SHEETS    = {"id": "59A9Vs89LRQlZq9m", "name": "Google Sheets account"}
 CRED_OLLAMA    = {"id": "S4LeOiFztrgDaMM9", "name": "Ollama"}
 CRED_TELEGRAM  = {"id": "gR2WcHsnoq4oIAuT", "name": "Telegram account"}
 UNSPLASH_KEY   = "UNSPLASH_ACCESS_KEY_HERE"
+WH_BASE        = "https://n8n.camiloayala.net/webhook"
 
 def nid(): return str(uuid.uuid4())
 
@@ -524,14 +525,24 @@ return [{ json: { ...cb, ...fila } }];
 
 CODE_PREP_LI = f'''
 const d = $json;
+const has_img = !!(d.li_asset);
+const share_content = {{
+  shareCommentary: {{ text: d.post_text || '' }},
+  shareMediaCategory: has_img ? 'IMAGE' : 'NONE'
+}};
+if (has_img) {{
+  share_content.media = [{{
+    status: 'READY',
+    description: {{ text: d.imagen_credit || '' }},
+    media: d.li_asset,
+    title: {{ text: (d.tema || '').substring(0, 200) }}
+  }}];
+}}
 const body = {{
   author: '{LINKEDIN_AUTHOR}',
   lifecycleState: 'PUBLISHED',
   specificContent: {{
-    'com.linkedin.ugc.ShareContent': {{
-      shareCommentary: {{ text: d.post_text || '' }},
-      shareMediaCategory: 'NONE'
-    }}
+    'com.linkedin.ugc.ShareContent': share_content
   }},
   visibility: {{ 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }}
 }};
@@ -554,6 +565,16 @@ return [{ json: {
   motivo:  'rechazado_telegram_v2',
   fecha:   new Date().toISOString().substring(0,16).replace('T',' ')
 } }];
+'''
+
+CODE_EXTRACT_UPLOAD_URL = '''
+const resp = $json;
+const m = resp.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'] || {};
+const upload_url = m.uploadUrl || '';
+const asset = resp.value?.asset || '';
+if (!upload_url) throw new Error('No uploadUrl en respuesta: '+JSON.stringify(resp).substring(0,300));
+const prev = $('Encontrar Post Guardado').first().json;
+return [{ json: { ...prev, li_upload_url: upload_url, li_asset: asset } }];
 '''
 
 # ─── BUILD WORKFLOW ───────────────────────────────────────────────────
@@ -639,7 +660,7 @@ def build():
 
     # ── PATH B: APROBACIÓN ────────────────────────────────────────────
 
-    tg_wh   = add(n_webhook("Telegram Entry MA",  "ma-telegram-v2", [0, 700]))
+    tg_wh   = add(n_webhook("Telegram Entry MA",  "ma-writer-callback", [0, 700]))
     ack_tg  = add(n_respond("ACK Telegram",                         [260, 700]))
     cb_par  = add(n_code   ("Parsear Callback",   CODE_CB_PARSE,    [520, 700]))
 
@@ -660,7 +681,7 @@ def build():
     ))
 
     router  = add(n_switch("Router Decisión", "={{ $json.accion }}",
-                            ["aprobar", "rechazar"], [1300, 700]))
+                            ["aprobar", "rechazar", "regenerar"], [1300, 700]))
 
     # -- APROBAR --
     lr_temas = add(n_sheets_read("Leer Temas Aprobacion", "Temas", TEMAS_GID, [1560, 560]))
@@ -698,6 +719,79 @@ def build():
     tg_no  = add(n_tg("Telegram Rechazado ❌", CHAT_ID,
         "❌ Post rechazado. El tema queda disponible para la próxima generación.",
         [1820, 840]))
+
+    # -- REGENERAR --
+    regen_wh = add(n_http("Llamar Writer Manual", "POST",
+        f"{WH_BASE}/ma-writer-manual", [1560, 1000],
+        body_json=json.dumps({"trigger": "regenerar"})
+    ))
+    tg_regen = add(n_tg("Telegram Regenerando 🔄", CHAT_ID,
+        "🔄 Regenerando post... El nuevo draft llegará en 2-3 minutos.",
+        [1820, 1000]))
+
+    # -- IMAGE UPLOAD (approve path, when imagen_url is present) --
+    if_img = add(n_if("¿Tiene Imagen?", "={{ $json.imagen_url }}", "isNotEmpty", "", [2080, 480]))
+
+    reg_asset = add({
+        "id": nid(), "name": "Registrar Asset LI",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2, "position": [2340, 340],
+        "parameters": {
+            "method": "POST",
+            "url": "https://api.linkedin.com/v2/assets?action=registerUpload",
+            "sendHeaders": True,
+            "headerParameters": {"parameters": [
+                {"name": "Authorization", "value": f"Bearer {LINKEDIN_TOKEN}"},
+                {"name": "Content-Type",  "value": "application/json"},
+                {"name": "X-Restli-Protocol-Version", "value": "2.0.0"}
+            ]},
+            "sendBody": True, "specifyBody": "json",
+            "jsonBody": json.dumps({"registerUploadRequest": {
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                "owner": LINKEDIN_AUTHOR,
+                "serviceRelationships": [{"relationshipType": "OWNER",
+                                          "identifier": "urn:li:userGeneratedContent"}]
+            }}),
+            "options": {"response": {"response": {"neverError": True}}}
+        }
+    })
+
+    ext_url = add(n_code("Extraer Upload URL LI", CODE_EXTRACT_UPLOAD_URL, [2600, 340]))
+
+    dl_img = add({
+        "id": nid(), "name": "Descargar Imagen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2, "position": [2860, 340],
+        "parameters": {
+            "method": "GET",
+            "url": "={{ $json.imagen_url }}",
+            "options": {"response": {"response": {"responseFormat": "file", "neverError": True}}}
+        }
+    })
+
+    up_img = add({
+        "id": nid(), "name": "Subir Imagen LI",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2, "position": [3120, 340],
+        "parameters": {
+            "method": "PUT",
+            "url": "={{ $('Extraer Upload URL LI').first().json.li_upload_url }}",
+            "sendHeaders": True,
+            "headerParameters": {"parameters": [
+                {"name": "Authorization",    "value": f"Bearer {LINKEDIN_TOKEN}"},
+                {"name": "media-type-family","value": "STILLIMAGE"},
+                {"name": "Content-Type",     "value": "image/jpeg"}
+            ]},
+            "sendBody": True, "contentType": "binaryData",
+            "inputDataFieldName": "data",
+            "options": {"response": {"response": {"neverError": True}}, "timeout": 30000}
+        }
+    })
+
+    post_ctx = add(n_code("Restaurar Contexto Post", '''
+const prev = $('Extraer Upload URL LI').first().json;
+return [{ json: prev }];
+''', [3380, 340]))
 
     # ── CONEXIONES ────────────────────────────────────────────────────
 
@@ -741,17 +835,35 @@ def build():
     connect(conn, ans_cb["name"],  upd_mkup["name"])
     connect(conn, upd_mkup["name"], router["name"])
 
-    # Router: aprobar(0) → approve flow, rechazar(1) → reject flow
+    # Router: aprobar(0) → approve flow, rechazar(1) → reject flow, regenerar(2) → regenerar flow
     connect(conn, router["name"], lr_temas["name"], out=0)
     connect(conn, router["name"], save_r["name"],   out=1)
+    connect(conn, router["name"], regen_wh["name"], out=2)
 
-    # Approve flow
-    for a, b in [(lr_temas, lr_fila), (lr_fila, prep_li), (prep_li, pub_li),
-                 (pub_li, val_li), (val_li, reg_pub), (reg_pub, tg_ok)]:
+    # Approve flow: read temas → find post → check for image
+    for a, b in [(lr_temas, lr_fila), (lr_fila, if_img)]:
+        connect(conn, a["name"], b["name"])
+
+    # Image path (TRUE = has imagen_url): register → extract URL → download → upload → restore context
+    connect(conn, if_img["name"],    reg_asset["name"], out=0)
+    connect(conn, reg_asset["name"], ext_url["name"])
+    connect(conn, ext_url["name"],   dl_img["name"])
+    connect(conn, dl_img["name"],    up_img["name"])
+    connect(conn, up_img["name"],    post_ctx["name"])
+    connect(conn, post_ctx["name"],  prep_li["name"])
+
+    # No-image path (FALSE): go directly to prep
+    connect(conn, if_img["name"], prep_li["name"], out=1)
+
+    # Continue approve flow
+    for a, b in [(prep_li, pub_li), (pub_li, val_li), (val_li, reg_pub), (reg_pub, tg_ok)]:
         connect(conn, a["name"], b["name"])
 
     # Reject flow
     connect(conn, save_r["name"], tg_no["name"])
+
+    # Regenerar flow
+    connect(conn, regen_wh["name"], tg_regen["name"])
 
     return {
         "name": "[MA] WRITER — Motor 3 Pasos",
@@ -780,7 +892,7 @@ if __name__ == "__main__":
         wf_id = d.get("id", "?")
         print(f"  ✅ WRITER creado — ID: {wf_id}")
         print(f"  Webhook manual:  https://n8n.camiloayala.net/webhook/ma-writer-manual")
-        print(f"  Webhook Telegram: https://n8n.camiloayala.net/webhook/ma-telegram-v2")
+        print(f"  Webhook Telegram: https://n8n.camiloayala.net/webhook/ma-writer-callback")
         print(f"  UI: https://n8n.camiloayala.net/workflow/{wf_id}")
     else:
         print(f"  ❌ Error {r.status_code}:")

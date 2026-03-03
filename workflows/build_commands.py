@@ -132,7 +132,7 @@ if (cb) {{
   return [{{ json: {{
     tipo:      'callback',
     chat_id:   String(cb.message?.chat?.id || CHAT_ID),
-    full_body: JSON.stringify(body)
+    full_body: body
   }} }}];
 }}
 
@@ -350,7 +350,7 @@ def build():
     # ── BRANCH 2: CALLBACK — forward to WRITER ──────────────────────────
     fwd_cb  = add(n_http_post(
         "Reenviar Callback al WRITER",
-        f"{WH_BASE}/ma-telegram-v2",
+        f"{WH_BASE}/ma-writer-callback",
         [1040, 600],
         body_json="={{ $json.full_body }}"
     ))
