@@ -1,0 +1,644 @@
+{
+  "name": "[MA] ANALYST — Métricas y Feedback",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 23 * * 1,3,5"
+            }
+          ]
+        }
+      },
+      "id": "5c44be30-99b2-4279-85ab-8ff8912f754b",
+      "name": "Trigger Analyst Diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma-analyst-manual",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "562ab2a4-5eeb-4496-aab8-e614df7ad5b7",
+      "name": "Webhook Analyst Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "webhookId": "b6c8599a-259e-4268-aa91-35b6f7db99cd"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "25e1963e-9f72-4f9a-860e-c27c56896c82",
+      "name": "Leer Temas Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 830260036,
+          "mode": "list",
+          "cachedResultName": "Metricas"
+        },
+        "options": {}
+      },
+      "id": "a25d2f20-a6f1-4bc9-b887-9da271d8c5b7",
+      "name": "Leer Metricas Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        304
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Filtrar posts publicados que tienen post_id y tienen menos de 45 días\nconst items = $input.all();\nconst ahora = Date.now();\nconst limite45d = ahora - (45 * 24 * 60 * 60 * 1000);\n\nconst posts_a_analizar = items\n  .map(i => i.json)\n  .filter(r => {\n    if (!r.post_id || r.estado !== 'publicado') return false;\n    if (r.fecha_pub) {\n      const fp = new Date(r.fecha_pub).getTime();\n      return fp > limite45d;\n    }\n    return true;\n  })\n  .slice(0, 25);\n\nif (posts_a_analizar.length === 0) {\n  return [{ json: { _sin_posts: true, mensaje: 'No hay posts publicados recientes para analizar' } }];\n}\n\nreturn [{ json: { posts: posts_a_analizar, count: posts_a_analizar.length } }];\n"
+      },
+      "id": "09a49bc2-fa56-4598-b8c7-2a2cf9219e63",
+      "name": "Filtrar Posts a Actualizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/ugcPosts?q=authors&authors=List(urn%3Ali%3Aperson%3AjAuei1KlC1)&count=25&projection=(elements*(id,firstPublishedAt,specificContent,likesSummary,commentsSummary,totalShareStatistics))",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer AQVb_3WZWNHiHMIu0Ut9ipaBzjCgmKw95_aQi2XIPcwFUjhQRTEeYq0vlrL8uGOVylnSCzPzsChQYy0xvzbRIWbdBeBSFqjDpnANIkVc5rZOJzyKbkgb0I2hWTMgbzX2AxOuB6lNhGqIkmF_oLtzKmWxKLniqu7Guuf4MrnU3ueDPp6zQXOLUqxHR8GDoY-kuUvXkFy485849iTl8N5NrBRk0sHbnBbMnpNsuN84juEtlbKL94zdiSk4O_nLcqksgJmGqUNKJdVsH23DLKmuLIFiqoJD5RwIyKbO0wH-IOOCHVOS_6_ovW9te-T9vKdkZiAPPjX40RKiapCjS48CTnu9-byBYQ"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            },
+            {
+              "name": "LinkedIn-Version",
+              "value": "202301"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "2d68126b-b1eb-4f13-9041-681d3dcca426",
+      "name": "Obtener Posts LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        784,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Procesar métricas: combina respuesta LinkedIn API + datos históricos del Sheet\nconst li_resp   = $json;\nconst posts_meta = $('Filtrar Posts a Actualizar').first().json.posts || [];\n// Historical metrics from the Metricas sheet (run in parallel from trigger)\nconst metricas_hist = $('Leer Metricas Sheet').all().map(i => i.json);\n\n// Build historical map: post_id → last known engagement\nconst histMap = {};\nmetricas_hist.forEach(m => {\n  if (!m.post_id) return;\n  const er = parseFloat(m.engagement_rate) || 0;\n  if (!histMap[m.post_id] || er > (histMap[m.post_id].engagement_rate || 0)) {\n    histMap[m.post_id] = {\n      likes:           parseInt(m.likes)    || 0,\n      comments:        parseInt(m.comments) || 0,\n      reposts:         parseInt(m.reposts)  || 0,\n      views:           parseInt(m.views)    || 0,\n      engagement_rate: er\n    };\n  }\n});\n\n// Build map from LinkedIn API response\nconst liMap = {};\nconst li_elements = li_resp.elements || li_resp.data?.elements || [];\nli_elements.forEach(elem => {\n  if (!elem.id) return;\n  liMap[elem.id] = {\n    likes:    elem.likesSummary?.aggregatedCounts?.numLikes    || 0,\n    comments: elem.commentsSummary?.aggregatedCounts?.numComments || 0,\n    reposts:  elem.totalShareStatistics?.shareCount             || 0,\n    views:    elem.totalShareStatistics?.impressionCount        || 0,\n  };\n});\n\nconst CONNECTIONS = 5065;\n\nconst metricas = posts_meta.map(post => {\n  const pid = post.post_id;\n  const li  = liMap[pid] || {};\n  const hist= histMap[pid] || {};\n\n  // LinkedIn API data has priority; fallback to historical sheet data\n  const likes    = li.likes    > 0 ? li.likes    : (hist.likes    || 0);\n  const comments = li.comments > 0 ? li.comments : (hist.comments || 0);\n  const reposts  = li.reposts  > 0 ? li.reposts  : (hist.reposts  || 0);\n  const views    = li.views    > 0 ? li.views    : (hist.views    || 0);\n\n  const er_num = views > 0\n    ? (likes + comments * 2 + reposts * 3) / views\n    : (likes + comments * 2 + reposts * 3) / CONNECTIONS;\n\n  const fuente = li.likes > 0 || li.comments > 0\n    ? 'linkedin_api'\n    : hist.engagement_rate > 0 ? 'sheet_historico' : 'sin_datos';\n\n  return {\n    post_id:         pid,\n    area:            post.area       || 'general',\n    tema:            post.tema_nombre || post.tema || '',\n    tipo_post:       post.tipo_post  || '',\n    tono:            post.tono       || '',\n    fecha:           post.fecha_pub  || '',\n    likes, comments, reposts, views,\n    engagement_rate: Math.round(er_num * 10000) / 10000,\n    er_percent:      (er_num * 100).toFixed(3) + '%',\n    fuente_stats:    fuente\n  };\n});\n\nif (!metricas.length) {\n  return [{ json: { _sin_metricas: true, mensaje: 'No hay posts para procesar métricas' } }];\n}\n\n// Resumen por área\nconst erPorArea = {};\nmetricas.forEach(m => {\n  const a = m.area || 'general';\n  if (!erPorArea[a]) erPorArea[a] = { sum: 0, count: 0 };\n  erPorArea[a].sum += m.engagement_rate;\n  erPorArea[a].count++;\n});\n\nconst resumen_areas = Object.entries(erPorArea)\n  .map(([area, d]) => ({\n    area,\n    er_promedio:  (d.sum / d.count).toFixed(4),\n    posts_count:  d.count\n  }))\n  .sort((a, b) => parseFloat(b.er_promedio) - parseFloat(a.er_promedio));\n\nreturn [{ json: { metricas, resumen_areas, total_posts: metricas.length, li_posts_en_api: li_elements.length } }];\n"
+      },
+      "id": "82cf9171-fd0c-4739-81f9-06624484136f",
+      "name": "Procesar Métricas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $json;\nif (data._sin_metricas) return [{ json: data }];\n\nconst metricas = data.metricas || [];\nconst ers = metricas.map(m => m.engagement_rate).filter(e => e > 0).sort((a, b) => a - b);\n\nif (ers.length < 2) {\n  return [{ json: { ...data, outliers_positivos: [], outliers_negativos: [], er_mediana: 0 } }];\n}\n\nconst mediana = ers[Math.floor(ers.length / 2)];\nconst p75     = ers[Math.floor(ers.length * 0.75)] || mediana;\n\nconst outliers_positivos = metricas\n  .filter(m => m.engagement_rate >= mediana * 2.0 && m.engagement_rate > 0)\n  .map(m => ({ ...m, ratio_mediana: +(m.engagement_rate / mediana).toFixed(2) }));\n\nconst outliers_negativos = metricas\n  .filter(m => m.engagement_rate > 0 && m.engagement_rate < mediana * 0.35)\n  .map(m => ({ ...m, ratio_mediana: +(m.engagement_rate / mediana).toFixed(2) }));\n\nreturn [{\n  json: {\n    ...data,\n    er_mediana:         mediana,\n    er_p75:             p75,\n    outliers_positivos,\n    outliers_negativos,\n    tiene_outliers_pos: outliers_positivos.length > 0\n  }\n}];\n"
+      },
+      "id": "30bd94f8-4ccd-48f4-bc2a-bc68a99bfeac",
+      "name": "Detectar Outliers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $json;\nif (data._sin_metricas) return [];\n// Solo guarda posts que tengan engagement_rate > 0 o datos reales de LinkedIn API\nreturn (data.metricas || [])\n  .filter(m => m.engagement_rate > 0 || m.fuente_stats === 'linkedin_api')\n  .map(m => ({ json: m }));\n"
+      },
+      "id": "8a07ae55-f191-4cbc-b192-409d2cf8b6d7",
+      "name": "Preparar para Append",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 830260036,
+          "mode": "list",
+          "cachedResultName": "Metricas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "post_id": "={{ $json.post_id }}",
+            "area": "={{ $json.area }}",
+            "tema": "={{ $json.tema }}",
+            "tipo_post": "={{ $json.tipo_post }}",
+            "tono": "={{ $json.tono }}",
+            "fecha": "={{ $json.fecha }}",
+            "likes": "={{ $json.likes }}",
+            "comments": "={{ $json.comments }}",
+            "reposts": "={{ $json.reposts }}",
+            "views": "={{ $json.views }}",
+            "engagement_rate": "={{ $json.engagement_rate }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "4e1040c2-d50e-40ba-b213-24b4a441e86e",
+      "name": "Guardar Métricas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1824,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $json;\nif (data._sin_metricas) return [{ json: data }];\n\nconst metricas  = data.metricas || [];\nconst resumen   = data.resumen_areas || [];\nconst outliers_pos = data.outliers_positivos || [];\nconst er_mediana   = data.er_mediana || 0;\n\nconst ers = metricas.map(m => m.engagement_rate).filter(e => e > 0).sort((a, b) => a - b);\nconst er_p75 = ers.length ? ers[Math.floor(ers.length * 0.75)] : 0;\n\nconst top_posts = [...metricas]\n  .sort((a, b) => b.engagement_rate - a.engagement_rate)\n  .slice(0, 5)\n  .map(p => `- ${p.tema || p.area}: ER=${(p.engagement_rate * 100).toFixed(2)}% (${p.likes}♥ ${p.comments}💬) [${p.fuente_stats}]`);\n\nconst out_txt = outliers_pos.slice(0, 3)\n  .map(p => `  * ${p.tema || p.area}: ER=${(p.engagement_rate * 100).toFixed(2)}% = ${p.ratio_mediana}x mediana`);\n\nconst texto_analisis = [\n  `MÉTRICAS DE ${metricas.length} POSTS:`,\n  `ER mediana: ${(er_mediana * 100).toFixed(3)}% | ER top 25%: ${(er_p75 * 100).toFixed(3)}%`,\n  `Posts con datos LinkedIn API: ${metricas.filter(m => m.fuente_stats === 'linkedin_api').length}`,\n  `Posts con datos históricos: ${metricas.filter(m => m.fuente_stats === 'sheet_historico').length}`,\n  ``,\n  `RENDIMIENTO POR ÁREA:`,\n  ...resumen.map(r => `- ${r.area}: ER promedio ${(parseFloat(r.er_promedio) * 100).toFixed(2)}% (${r.posts_count} posts)`),\n  ``,\n  ...(outliers_pos.length > 0 ? [`OUTLIERS POSITIVOS (ER > 2x mediana):`, ...out_txt, ``] : []),\n  `TOP 5 POSTS POR ER:`,\n  ...top_posts,\n  ``,\n  `DETALLE:`,\n  ...metricas.slice(0, 20).map(m =>\n    `${m.fecha || '?'} | ${m.area} | ${m.tono || '?'} | ER=${(m.engagement_rate * 100).toFixed(2)}% | ${m.likes}♥ ${m.comments}💬 ${m.views}👁 [${m.fuente_stats}]`\n  )\n].join('\\n');\n\nreturn [{ json: { ...data, texto_analisis: texto_analisis.substring(0, 9000) } }];\n"
+      },
+      "id": "67e2bd0b-a09f-4241-9581-f29a7df2e846",
+      "name": "Preparar Texto Análisis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "7c190116-ff41-456e-b04d-aff49e6368cf",
+      "name": "🧠 Agente Analyst Qwen",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.7,
+      "position": [
+        2352,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "S4LeOiFztrgDaMM9",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) return [{ json: { insights: null, usar_basico: true } }];\nlet s = raw.trim().replace(/```json\\s*/gi, '').replace(/```/g, '').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet ins;\ntry { ins = JSON.parse(s); }\ncatch(e) { const m = s.match(/\\{[\\s\\S]*\\}/); ins = m ? JSON.parse(m[0]) : null; }\nconst data_prev = $('Preparar Texto Análisis').first().json;\nreturn [{ json: { ...data_prev, insights: ins } }];\n"
+      },
+      "id": "591313e3-3a79-4f8c-a342-06cece7df5b6",
+      "name": "Parsear Insights Qwen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2608,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "42e15527-74c3-40c0-96a1-291602899175",
+      "name": "Leer Temas para Scores",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2608,
+        304
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $json;\nconst insights   = data.insights || {};\nconst resumen    = data.resumen_areas || [];\nconst temas_sheet= $('Leer Temas para Scores').all().map(i => i.json);\n\nconst boostPorArea = {};\nif (resumen.length > 0) {\n  const er_max = Math.max(...resumen.map(r => parseFloat(r.er_promedio)));\n  const er_min = Math.min(...resumen.map(r => parseFloat(r.er_promedio)));\n  const rango  = er_max - er_min || 0.001;\n  resumen.forEach(r => {\n    const er = parseFloat(r.er_promedio);\n    boostPorArea[r.area] = 0.8 + ((er - er_min) / rango) * 0.6;\n  });\n}\n\nconst areas_top = (insights?.areas_top || []).map(a => a.toLowerCase());\n\nreturn temas_sheet\n  .filter(t => t.id && t.estado !== 'publicado')\n  .map(t => {\n    const area  = (t.area || '').toLowerCase();\n    const boost = boostPorArea[area] || 1.0;\n    const score = parseFloat(t.score || '1.0');\n    const score_nuevo = Math.round(score * (0.7 + boost * 0.3) * 100) / 100;\n    const score_final = areas_top.includes(area)\n      ? Math.min(score_nuevo * 1.2, 3.0)\n      : Math.min(score_nuevo, 2.5);\n    return { json: { id: t.id, score: score_final.toFixed(2) } };\n  });\n"
+      },
+      "id": "b58da217-0133-4bdc-a45c-941d7f2e9271",
+      "name": "Actualizar Scores Temas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "score": "={{ $json.score }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "b895094a-a8ad-4d6a-8c52-4f01127fa86f",
+      "name": "Update Scores Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3120,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data    = $('Parsear Insights Qwen').first().json || {};\nconst ins     = data.insights || {};\nconst res     = data.resumen_areas || [];\nconst total   = data.total_posts || 0;\nconst out_pos = (data.outliers_positivos || []).slice(0, 3);\nconst li_posts = data.li_posts_en_api || 0;\n\nconst areas_html = res.slice(0, 5).map(r =>\n  `  • <b>${r.area}</b>: ER ${(parseFloat(r.er_promedio) * 100).toFixed(2)}% (${r.posts_count} posts)`\n).join('\\n');\n\nconst out_html = out_pos.length\n  ? out_pos.map(p => `  🌟 ${p.tema || p.area}: ER ${(p.engagement_rate * 100).toFixed(2)}% (${p.ratio_mediana}x mediana)`).join('\\n')\n  : '  Ninguno detectado';\n\nconst rec = (ins?.recomendaciones_tono || []).slice(0, 3).join('\\n  • ') || 'Sin recomendaciones';\nconst areas_top = (ins?.areas_top || []).join(', ') || 'datos insuficientes';\nconst patron = ins?.patron_detectado || '';\n\nconst msg = [\n  `📊 <b>[ANALYST v2] Informe Engagement</b>`,\n  ``,\n  `Posts analizados: ${total} | LinkedIn API: ${li_posts} posts`,\n  ``,\n  `<b>ER por área:</b>`,\n  areas_html || '  (sin datos)',\n  ``,\n  `<b>Outliers positivos:</b>`,\n  out_html,\n  ``,\n  `<b>Áreas de mayor tracción:</b> ${areas_top}`,\n  ``,\n  ...(patron ? [`<b>Patrón detectado:</b> ${patron}`, ``] : []),\n  `<b>Recomendaciones de tono:</b>`,\n  `  • ${rec}`,\n  ``,\n  `Scores de temas actualizados ✅`\n].join('\\n');\n\nreturn [{ json: { mensaje: msg } }];\n"
+      },
+      "id": "7b42a5b3-0008-49d5-af65-6ad44ed74b60",
+      "name": "Preparar Informe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3392,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.camiloayala.net/webhook/ma-feedback-manual",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"trigger\": \"analyst\", \"timestamp\": \"={{ $now.toISO() }}\"}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "973f8691-0f09-4011-ab38-3cc32124f699",
+      "name": "Llamar FEEDBACK Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3648,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "={{ $json.mensaje }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d97420ac-65a3-4630-b542-29d70d8c0728",
+      "name": "Telegram Informe 📊",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3904,
+        0
+      ],
+      "webhookId": "f8adcf28-1bb5-4770-a12d-39738a7ce38d",
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger Analyst Diario": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Metricas Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Analyst Manual": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Metricas Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas Sheet": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Posts a Actualizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Posts a Actualizar": {
+      "main": [
+        [
+          {
+            "node": "Obtener Posts LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Posts LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Procesar Métricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Métricas": {
+      "main": [
+        [
+          {
+            "node": "Detectar Outliers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar Outliers": {
+      "main": [
+        [
+          {
+            "node": "Preparar para Append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar para Append": {
+      "main": [
+        [
+          {
+            "node": "Guardar Métricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Métricas": {
+      "main": [
+        [
+          {
+            "node": "Preparar Texto Análisis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Texto Análisis": {
+      "main": [
+        [
+          {
+            "node": "🧠 Agente Analyst Qwen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 Agente Analyst Qwen": {
+      "main": [
+        [
+          {
+            "node": "Parsear Insights Qwen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Insights Qwen": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas para Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas para Scores": {
+      "main": [
+        [
+          {
+            "node": "Actualizar Scores Temas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar Scores Temas": {
+      "main": [
+        [
+          {
+            "node": "Update Scores Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Scores Sheet": {
+      "main": [
+        [
+          {
+            "node": "Preparar Informe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Informe": {
+      "main": [
+        [
+          {
+            "node": "Llamar FEEDBACK Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llamar FEEDBACK Webhook": {
+      "main": [
+        [
+          {
+            "node": "Telegram Informe 📊",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "9bea63c1-7570-4577-9068-baa7c0ab41fc",
+  "meta": {
+    "instanceId": "fb3c60750005dedb7e8a7a51a7a0e79d0341f231af1bb8c8698be6d6ccb11aee"
+  },
+  "id": "cwAt7hnhFF8xY7Cn",
+  "tags": []
+}
