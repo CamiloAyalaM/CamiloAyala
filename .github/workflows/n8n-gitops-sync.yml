@@ -1,0 +1,244 @@
+name: n8n GitOps Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'workflows/**/*.json'
+  workflow_dispatch:
+
+concurrency:
+  group: n8n-gitops-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync n8n workflows
+        env:
+          N8N_URL: ${{ secrets.N8N_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          node << 'SCRIPT_EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          // ── Configuration ──────────────────────────────────────────────
+          const BASE_URL = (process.env.N8N_URL || '').trim().replace(/\/+$/, '');
+          const API_KEY  = (process.env.N8N_API_KEY || '').trim();
+          const API_BASE = `${BASE_URL}/api/v1`;
+          const WORKFLOWS_DIR = path.join(process.cwd(), 'workflows');
+          const MAX_RETRIES = 4;
+          const BASE_DELAY_MS = 1000;
+          const MAX_DETAIL_LENGTH = 120;
+
+          // ── Audit log ──────────────────────────────────────────────────
+          const auditLog = [];          // { name, action, status, detail }
+          let hasErrors = false;
+
+          // ── Helpers ────────────────────────────────────────────────────
+          async function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+          }
+
+          async function apiRequest(method, endpoint, body) {
+            const url = `${API_BASE}${endpoint}`;
+            const opts = {
+              method,
+              headers: {
+                'X-N8N-API-KEY': API_KEY,
+                'Content-Type': 'application/json',
+              },
+            };
+            if (body !== undefined) {
+              opts.body = JSON.stringify(body);
+            }
+
+            let lastError;
+            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+              const res = await fetch(url, opts);
+              if (res.ok) {
+                const text = await res.text();
+                return { status: res.status, data: text ? JSON.parse(text) : null };
+              }
+
+              const retryable = res.status === 429 || res.status >= 500;
+              if (retryable && attempt < MAX_RETRIES) {
+                const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+                console.log(`  ⏳ ${res.status} on ${method} ${endpoint} — retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+                await sleep(delay);
+                continue;
+              }
+
+              let errorBody;
+              try { errorBody = await res.text(); } catch { errorBody = ''; }
+              lastError = { status: res.status, body: errorBody };
+              break;
+            }
+            const err = new Error(`API ${method} ${endpoint} failed with ${lastError.status}`);
+            err.status = lastError.status;
+            err.responseBody = lastError.body;
+            throw err;
+          }
+
+          // Strip system metadata that causes 400 errors but preserve active & staticData
+          function sanitizePayload(wf) {
+            return {
+              name: wf.name,
+              nodes: wf.nodes || [],
+              connections: wf.connections || {},
+              settings: wf.settings || {},
+              staticData: wf.staticData || null,
+              active: wf.active === true,
+            };
+          }
+
+          function validateWorkflow(obj, filename) {
+            const errors = [];
+            if (!obj || typeof obj !== 'object') errors.push('Not a valid JSON object');
+            if (!Array.isArray(obj.nodes))            errors.push('Missing or invalid "nodes" array');
+            if (!obj.connections || typeof obj.connections !== 'object') errors.push('Missing or invalid "connections" object');
+            if (!obj.name || typeof obj.name !== 'string')             errors.push('Missing or invalid "name" string');
+            return errors;
+          }
+
+          // ── Main ───────────────────────────────────────────────────────
+          async function main() {
+            if (!BASE_URL || !API_KEY) {
+              console.error('❌ N8N_URL and N8N_API_KEY secrets must be configured.');
+              process.exit(1);
+            }
+
+            // Phase 1 — Load & validate local JSON files
+            console.log('📂 Phase 1: Loading and validating local workflows…');
+            const allFiles = fs.readdirSync(WORKFLOWS_DIR, { recursive: true })
+              .filter(f => typeof f === 'string' && f.endsWith('.json'));
+
+            const localWorkflows = [];
+            for (const file of allFiles) {
+              const filePath = path.join(WORKFLOWS_DIR, file);
+              let parsed;
+              try {
+                parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+              } catch (e) {
+                console.error(`  ❌ Invalid JSON: ${file} — ${e.message}`);
+                auditLog.push({ name: file, action: 'Validation', status: '-', detail: `Invalid JSON: ${e.message}` });
+                hasErrors = true;
+                continue;
+              }
+              const issues = validateWorkflow(parsed, file);
+              if (issues.length > 0) {
+                console.error(`  ❌ Validation failed: ${file} — ${issues.join('; ')}`);
+                auditLog.push({ name: parsed.name || file, action: 'Validation', status: '-', detail: issues.join('; ') });
+                hasErrors = true;
+                continue;
+              }
+              console.log(`  ✅ Valid: ${parsed.name}`);
+              localWorkflows.push(parsed);
+            }
+
+            // Phase 2 — Fetch remote workflows
+            console.log('\n🌐 Phase 2: Fetching remote workflows…');
+            let remoteWorkflows = [];
+            try {
+              const res = await apiRequest('GET', '/workflows');
+              remoteWorkflows = res.data.data || res.data || [];
+              console.log(`  Found ${remoteWorkflows.length} remote workflow(s).`);
+            } catch (e) {
+              console.error(`  ❌ Failed to fetch remote workflows: ${e.message}`);
+              if (e.responseBody) console.error(`  Response: ${e.responseBody}`);
+              process.exit(1);
+            }
+
+            // Phase 3 — Upsert
+            console.log('\n🔄 Phase 3: Upserting workflows…');
+            const syncedNames = new Set();
+            for (const local of localWorkflows) {
+              const payload = sanitizePayload(local);
+              const existing = remoteWorkflows.find(r =>
+                r.name === local.name || (local.id && r.id === local.id)
+              );
+
+              try {
+                if (existing) {
+                  const res = await apiRequest('PUT', `/workflows/${existing.id}`, payload);
+                  console.log(`  ✅ Updated: ${local.name} (${res.status})`);
+                  auditLog.push({ name: local.name, action: 'Updated', status: res.status, detail: '' });
+                } else {
+                  const res = await apiRequest('POST', '/workflows', payload);
+                  console.log(`  ✅ Created: ${local.name} (${res.status})`);
+                  auditLog.push({ name: local.name, action: 'Created', status: res.status, detail: '' });
+                }
+                syncedNames.add(local.name);
+              } catch (e) {
+                hasErrors = true;
+                console.error(`  ❌ Error syncing "${local.name}": ${e.message}`);
+                const detail = e.status === 400 ? `Bad Request: ${e.responseBody}` : e.responseBody || '';
+                if (e.status === 400) {
+                  console.error(`  🔍 Debug payload keys: ${Object.keys(payload).join(', ')}`);
+                  console.error(`  🔍 Response body: ${e.responseBody}`);
+                }
+                auditLog.push({ name: local.name, action: 'Error', status: e.status || '-', detail });
+              }
+            }
+
+            // Phase 4 — Pruning
+            console.log('\n🗑️  Phase 4: Pruning orphaned workflows…');
+            const localNames = new Set(localWorkflows.map(w => w.name));
+            for (const remote of remoteWorkflows) {
+              if (!localNames.has(remote.name)) {
+                try {
+                  const res = await apiRequest('DELETE', `/workflows/${remote.id}`);
+                  console.log(`  🗑️  Deleted: ${remote.name} (${res.status})`);
+                  auditLog.push({ name: remote.name, action: 'Deleted', status: res.status, detail: '' });
+                } catch (e) {
+                  hasErrors = true;
+                  console.error(`  ❌ Error deleting "${remote.name}": ${e.message}`);
+                  auditLog.push({ name: remote.name, action: 'Error (Delete)', status: e.status || '-', detail: e.responseBody || '' });
+                }
+              }
+            }
+
+            // ── Step Summary ─────────────────────────────────────────────
+            const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+            if (summaryPath) {
+              let md = '## 📋 n8n GitOps Sync Report\n\n';
+              md += '| Workflow | Action | Status | Detail |\n';
+              md += '|----------|--------|--------|--------|\n';
+              for (const entry of auditLog) {
+                const detail = entry.detail ? entry.detail.substring(0, MAX_DETAIL_LENGTH) : '';
+                md += `| ${entry.name} | ${entry.action} | ${entry.status} | ${detail} |\n`;
+              }
+              if (auditLog.length === 0) {
+                md += '| _(none)_ | - | - | No workflows processed |\n';
+              }
+              md += `\n**Total:** ${auditLog.length} workflow(s) processed.`;
+              if (hasErrors) md += '  \n⚠️ **Some operations failed.** Check logs above for details.';
+              fs.appendFileSync(summaryPath, md);
+            }
+
+            // ── Exit ─────────────────────────────────────────────────────
+            if (hasErrors) {
+              console.error('\n❌ Completed with errors.');
+              process.exit(1);
+            }
+            console.log('\n✅ All workflows synced successfully.');
+          }
+
+          main().catch(err => {
+            console.error('Unhandled error:', err);
+            process.exit(1);
+          });
+          SCRIPT_EOF
