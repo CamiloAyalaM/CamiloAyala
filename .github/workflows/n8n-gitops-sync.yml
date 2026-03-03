@@ -15,6 +15,8 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,6 +42,7 @@ jobs:
           const WORKFLOWS_DIR = path.join(process.cwd(), 'workflows');
           const MAX_RETRIES = 4;
           const BASE_DELAY_MS = 1000;
+          const MAX_DETAIL_LENGTH = 120;
 
           // ── Audit log ──────────────────────────────────────────────────
           const auditLog = [];          // { name, action, status, detail }
@@ -215,7 +218,7 @@ jobs:
               md += '| Workflow | Action | Status | Detail |\n';
               md += '|----------|--------|--------|--------|\n';
               for (const entry of auditLog) {
-                const detail = entry.detail ? entry.detail.substring(0, 120) : '';
+                const detail = entry.detail ? entry.detail.substring(0, MAX_DETAIL_LENGTH) : '';
                 md += `| ${entry.name} | ${entry.action} | ${entry.status} | ${detail} |\n`;
               }
               if (auditLog.length === 0) {
