@@ -1,0 +1,296 @@
+name: n8n GitOps Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workflows/**/*.json'
+
+concurrency:
+  group: n8n-gitops-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync n8n Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Sync workflows to n8n
+        env:
+          N8N_URL: ${{ secrets.N8N_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const https = require('https');
+            const http = require('http');
+
+            // ── Configuration ──────────────────────────────────────────
+            const N8N_URL = (process.env.N8N_URL || '').replace(/\/+$/, '');
+            const API_KEY = process.env.N8N_API_KEY || '';
+            const WORKFLOWS_DIR = path.join(process.env.GITHUB_WORKSPACE, 'workflows');
+            const MAX_RETRIES = 4;
+            const BASE_DELAY_MS = 1000;
+
+            if (!N8N_URL || !API_KEY) {
+              core.setFailed('Missing N8N_URL or N8N_API_KEY secrets.');
+              return;
+            }
+
+            // ── HTTP helper with retry & exponential backoff ──────────
+            function request(method, urlPath, body) {
+              return retry(() => rawRequest(method, urlPath, body));
+            }
+
+            function rawRequest(method, urlPath, body) {
+              return new Promise((resolve, reject) => {
+                const fullUrl = `${N8N_URL}${urlPath}`;
+                const parsed = new URL(fullUrl);
+                const transport = parsed.protocol === 'https:' ? https : http;
+                const payload = body ? JSON.stringify(body) : null;
+
+                const opts = {
+                  method,
+                  hostname: parsed.hostname,
+                  port: parsed.port,
+                  path: parsed.pathname + parsed.search,
+                  headers: {
+                    'X-N8N-API-KEY': API_KEY,
+                    'Content-Type': 'application/json',
+                    ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {})
+                  }
+                };
+
+                const req = transport.request(opts, (res) => {
+                  const chunks = [];
+                  res.on('data', (c) => chunks.push(c));
+                  res.on('end', () => {
+                    const raw = Buffer.concat(chunks).toString();
+                    let data;
+                    try { data = JSON.parse(raw); } catch { data = raw; }
+                    resolve({ status: res.statusCode, data });
+                  });
+                });
+
+                req.on('error', reject);
+                if (payload) req.write(payload);
+                req.end();
+              });
+            }
+
+            async function retry(fn) {
+              let lastErr;
+              for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                  const res = await fn();
+                  if (res.status === 429 || res.status >= 500) {
+                    throw Object.assign(new Error(`HTTP ${res.status}`), { response: res });
+                  }
+                  return res;
+                } catch (err) {
+                  lastErr = err;
+                  if (attempt < MAX_RETRIES) {
+                    const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+                    core.info(`Retry ${attempt + 1}/${MAX_RETRIES} after ${delay}ms...`);
+                    await new Promise((r) => setTimeout(r, delay));
+                  }
+                }
+              }
+              if (lastErr.response) return lastErr.response;
+              throw lastErr;
+            }
+
+            // ── Payload sanitization ─────────────────────────────────
+            function sanitize(wf) {
+              const clean = { ...wf };
+              const remove = [
+                'id', 'createdAt', 'updatedAt', 'versionId',
+                'meta', 'tags', 'shared', 'homeProject',
+                'isArchived', 'usedCredentials'
+              ];
+              for (const key of remove) delete clean[key];
+              // Preserve active and staticData
+              if (wf.active !== undefined) clean.active = wf.active;
+              if (wf.staticData !== undefined) clean.staticData = wf.staticData;
+              return clean;
+            }
+
+            // ── Phase 1: Read & validate local JSON files ────────────
+            const report = []; // { name, action, status }
+            let hasErrors = false;
+
+            core.info('Phase 1: Validating local workflow JSON files...');
+            const localWorkflows = [];
+
+            if (!fs.existsSync(WORKFLOWS_DIR)) {
+              core.warning('No workflows/ directory found. Nothing to sync.');
+              return;
+            }
+
+            const files = fs.readdirSync(WORKFLOWS_DIR)
+              .filter((f) => f.endsWith('.json'));
+
+            if (files.length === 0) {
+              core.warning('No JSON files found in workflows/. Nothing to sync.');
+              return;
+            }
+
+            for (const file of files) {
+              const filePath = path.join(WORKFLOWS_DIR, file);
+              let wf;
+              try {
+                const raw = fs.readFileSync(filePath, 'utf8');
+                wf = JSON.parse(raw);
+              } catch (err) {
+                core.error(`Invalid JSON in ${file}: ${err.message}`);
+                report.push({ name: file, action: 'Error', status: 'Invalid JSON' });
+                hasErrors = true;
+                continue;
+              }
+
+              if (!wf.nodes || !wf.connections) {
+                core.error(`${file} missing required fields (nodes, connections).`);
+                report.push({ name: file, action: 'Error', status: 'Missing nodes/connections' });
+                hasErrors = true;
+                continue;
+              }
+
+              if (!wf.name) {
+                core.error(`${file} missing 'name' field.`);
+                report.push({ name: file, action: 'Error', status: 'Missing name' });
+                hasErrors = true;
+                continue;
+              }
+
+              localWorkflows.push({ file, wf });
+              core.info(`  ✓ ${file} — "${wf.name}"`);
+            }
+
+            // ── Phase 2: Get remote workflows ────────────────────────
+            core.info('Phase 2: Fetching remote workflows from n8n...');
+            const remoteRes = await request('GET', '/api/v1/workflows');
+
+            if (remoteRes.status !== 200) {
+              core.setFailed(`Failed to fetch remote workflows: HTTP ${remoteRes.status}`);
+              report.push({ name: '(API)', action: 'Error', status: `GET /workflows → ${remoteRes.status}` });
+              hasErrors = true;
+            }
+
+            const remoteWorkflows = remoteRes.status === 200
+              ? (remoteRes.data.data || remoteRes.data || [])
+              : [];
+
+            const remoteByName = new Map();
+            for (const rw of remoteWorkflows) {
+              remoteByName.set(rw.name, rw);
+            }
+            core.info(`  Found ${remoteWorkflows.length} remote workflow(s).`);
+
+            // ── Phase 3: Upsert ──────────────────────────────────────
+            core.info('Phase 3: Upserting workflows...');
+            const syncedNames = new Set();
+
+            for (const { file, wf } of localWorkflows) {
+              syncedNames.add(wf.name);
+              const payload = sanitize(wf);
+
+              // Match by name or by id embedded in the JSON
+              const remote = remoteByName.get(wf.name)
+                || (wf.id ? remoteWorkflows.find((r) => r.id === wf.id) : null);
+
+              try {
+                let res;
+                if (remote) {
+                  // Update existing
+                  res = await request('PUT', `/api/v1/workflows/${remote.id}`, payload);
+                  if (res.status === 200) {
+                    core.info(`  ✓ Updated "${wf.name}" (${remote.id})`);
+                    report.push({ name: wf.name, action: 'Updated', status: res.status });
+                  } else {
+                    core.error(`  ✗ Update "${wf.name}": HTTP ${res.status}`);
+                    if (res.status === 400) core.error(`    Detail: ${JSON.stringify(res.data)}`);
+                    report.push({ name: wf.name, action: 'Error (Update)', status: res.status });
+                    hasErrors = true;
+                  }
+                } else {
+                  // Create new
+                  res = await request('POST', '/api/v1/workflows', payload);
+                  if (res.status === 200 || res.status === 201) {
+                    const newId = res.data.id || res.data.data?.id || '?';
+                    core.info(`  ✓ Created "${wf.name}" (${newId})`);
+                    report.push({ name: wf.name, action: 'Created', status: res.status });
+                  } else {
+                    core.error(`  ✗ Create "${wf.name}": HTTP ${res.status}`);
+                    if (res.status === 400) core.error(`    Detail: ${JSON.stringify(res.data)}`);
+                    report.push({ name: wf.name, action: 'Error (Create)', status: res.status });
+                    hasErrors = true;
+                  }
+                }
+              } catch (err) {
+                core.error(`  ✗ "${wf.name}": ${err.message}`);
+                report.push({ name: wf.name, action: 'Error', status: err.message });
+                hasErrors = true;
+              }
+            }
+
+            // ── Phase 4: Pruning ─────────────────────────────────────
+            core.info('Phase 4: Pruning orphaned remote workflows...');
+
+            for (const rw of remoteWorkflows) {
+              if (!syncedNames.has(rw.name)) {
+                try {
+                  const res = await request('DELETE', `/api/v1/workflows/${rw.id}`);
+                  if (res.status === 200 || res.status === 204) {
+                    core.info(`  🗑 Deleted "${rw.name}" (${rw.id})`);
+                    report.push({ name: rw.name, action: 'Deleted', status: res.status });
+                  } else {
+                    core.error(`  ✗ Delete "${rw.name}": HTTP ${res.status}`);
+                    report.push({ name: rw.name, action: 'Error (Delete)', status: res.status });
+                    hasErrors = true;
+                  }
+                } catch (err) {
+                  core.error(`  ✗ Delete "${rw.name}": ${err.message}`);
+                  report.push({ name: rw.name, action: 'Error (Delete)', status: err.message });
+                  hasErrors = true;
+                }
+              }
+            }
+
+            // ── Step Summary ─────────────────────────────────────────
+            let summary = '## n8n GitOps Sync Report\n\n';
+            summary += `| Workflow | Action | Status |\n`;
+            summary += `|----------|--------|--------|\n`;
+            for (const r of report) {
+              summary += `| ${r.name} | ${r.action} | ${r.status} |\n`;
+            }
+
+            if (report.length === 0) {
+              summary += `| _(none)_ | — | — |\n`;
+            }
+
+            const created = report.filter((r) => r.action === 'Created').length;
+            const updated = report.filter((r) => r.action === 'Updated').length;
+            const deleted = report.filter((r) => r.action === 'Deleted').length;
+            const errors = report.filter((r) => r.action.startsWith('Error')).length;
+
+            summary += `\n**Summary:** ${created} created, ${updated} updated, ${deleted} deleted, ${errors} error(s)\n`;
+
+            core.summary.addRaw(summary);
+            await core.summary.write();
+            core.info('Step summary written.');
+
+            if (hasErrors) {
+              core.setFailed(`Sync completed with ${errors} error(s). Check summary for details.`);
+            } else {
+              core.info('All workflows synced successfully.');
+            }
