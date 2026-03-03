@@ -166,7 +166,8 @@ def n_http_bin_download(name, url, pos):
     return {"id": nid(), "name": name, "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.2, "position": pos,
             "parameters": {"method": "GET", "url": url,
-                           "options": {"response": {"response": {"neverError": True}},
+                           "options": {"response": {"response": {"neverError": True,
+                                                                  "responseFormat": "file"}},
                                        "timeout": 30000}}}
 
 def n_http_bin_upload(name, url, pos, auth_token):
@@ -732,7 +733,7 @@ def build():
 
     # ── PATH B: APROBACIÓN ────────────────────────────────────────────
 
-    tg_wh   = add(n_webhook("Telegram Entry MA",  "ma-telegram-v2", [0, 700]))
+    tg_wh   = add(n_webhook("Telegram Entry MA",  "ma-writer-callback", [0, 700]))
     ack_tg  = add(n_respond("ACK Telegram",                         [260, 700]))
     cb_par  = add(n_code   ("Parsear Callback",   CODE_CB_PARSE,    [520, 700]))
 
@@ -939,7 +940,7 @@ if __name__ == "__main__":
         wf_id = d.get("id", "?")
         print(f"  ✅ WRITER creado — ID: {wf_id}")
         print(f"  Webhook manual:  https://n8n.camiloayala.net/webhook/ma-writer-manual")
-        print(f"  Webhook Telegram: https://n8n.camiloayala.net/webhook/ma-telegram-v2")
+        print(f"  Webhook Telegram: https://n8n.camiloayala.net/webhook/ma-writer-callback")
         print(f"  UI: https://n8n.camiloayala.net/workflow/{wf_id}")
     else:
         print(f"  ❌ Error {r.status_code}:")
