@@ -37,15 +37,16 @@ jobs:
             const url = process.env.N8N_URL.trim().replace(/\/$/, '');
             const api = axios.create({
               baseURL: \`\${url}/api/v1\`,
-              headers: { 'X-N8N-API-KEY': process.env.N8N_API_KEY.trim() }
+              headers: { 
+                'X-N8N-API-KEY': process.env.N8N_API_KEY.trim(),
+                'Content-Type': 'application/json'
+              }
             });
 
             try {
               const dir = path.join(process.cwd(), 'workflows');
-              if (!fs.existsSync(dir)) {
-                console.log('No workflows directory found. Skipping.');
-                return;
-              }
+              if (!fs.existsSync(dir)) return console.log('No workflows folder found.');
+              
               const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
               const localWorkflows = files.map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')));
 
@@ -55,18 +56,16 @@ jobs:
               for (const local of localWorkflows) {
                 const existing = remoteWorkflows.find(r => r.name === local.name);
                 
-                // Extraemos el estado pero NO lo enviamos en el body principal (Error 400 fix)
-                const shouldBeActive = local.active === true;
+                // CONSTRUCCIÓN EXPLÍCITA DEL BODY SIN 'ACTIVE'
                 const body = {
                   name: local.name,
                   nodes: local.nodes,
                   connections: local.connections,
-                  settings: local.settings,
-                  staticData: local.staticData
+                  settings: local.settings || {},
+                  staticData: local.staticData || {}
                 };
 
                 let workflowId;
-
                 if (existing) {
                   await api.put('/workflows/' + existing.id, body);
                   workflowId = existing.id;
@@ -77,16 +76,14 @@ jobs:
                   console.log('✨ Created: ' + local.name);
                 }
 
-                // Sincronización del estado Active/Inactive
-                try {
-                  const action = shouldBeActive ? 'activate' : 'deactivate';
-                  await api.post(\`/workflows/\${workflowId}/\${action}\`);
-                  console.log(\`  -> Status: \${action}\`);
-                } catch (statusErr) {
-                  console.log(\`  ⚠️ Could not change status for \${local.name}: \`, statusErr.response?.data?.message || statusErr.message);
+                // GESTIÓN DE ESTADO POST-ENVÍO
+                if (local.active !== undefined) {
+                  const endpoint = \`/workflows/\${workflowId}/\${local.active ? 'activate' : 'deactivate'}\`;
+                  await api.post(endpoint).catch(e => console.log('  ⚠️ Status change failed (Normal if already in that state)'));
                 }
               }
 
+              // PRUNING: Borrar lo que no esté en Git
               for (const remote of remoteWorkflows) {
                 if (!localWorkflows.some(l => l.name === remote.name)) {
                   await api.delete('/workflows/' + remote.id);
@@ -94,7 +91,7 @@ jobs:
                 }
               }
             } catch (e) {
-              console.error('❌ Error:', e.response?.data || e.message);
+              console.error('❌ API Error:', e.response?.data || e.message);
               process.exit(1);
             }
           }
