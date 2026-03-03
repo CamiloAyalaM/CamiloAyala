@@ -13,7 +13,7 @@ Al finalizar también:
 """
 import json, uuid, requests
 
-API_KEY  = "N8N_API_KEY_HERE"
+API_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0YmY4ODRkNC1hMGUxLTRiNjgtOTVlZC1kMDc0ZWY5N2ExZDQiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiOWY0MWY5OWQtZDNkNy00NWNjLWFkZjAtZjc2ZmMwZDQxZjcyIiwiaWF0IjoxNzcxNzcyMzg4fQ.RmQl5yX4T9pAUn4swhvMcydMv-8VukNnlbPc7NgbK0U"
 BASE_URL = "https://n8n.camiloayala.net/api/v1"
 HEADERS  = {"X-N8N-API-KEY": API_KEY, "Content-Type": "application/json"}
 
@@ -132,7 +132,7 @@ if (cb) {{
   return [{{ json: {{
     tipo:      'callback',
     chat_id:   String(cb.message?.chat?.id || CHAT_ID),
-    full_body: JSON.stringify(body)
+    full_body: body
   }} }}];
 }}
 

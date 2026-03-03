@@ -145,6 +145,32 @@ def n_respond(name, pos):
             "typeVersion": 1.1, "position": pos,
             "parameters": {"respondWith": "text", "responseBody": "OK", "options": {}}}
 
+def n_http_bin_download(name, url, pos):
+    """HTTP GET node que descarga respuesta binaria (imagen)."""
+    return {"id": nid(), "name": name, "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2, "position": pos,
+            "parameters": {"method": "GET", "url": url,
+                           "options": {"response": {"response": {"neverError": True}},
+                                       "timeout": 30000}}}
+
+def n_http_bin_upload(name, url, pos, auth_token):
+    """HTTP PUT node que sube datos binarios (imagen) a LinkedIn."""
+    return {"id": nid(), "name": name, "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2, "position": pos,
+            "parameters": {
+                "method": "PUT", "url": url,
+                "sendHeaders": True,
+                "headerParameters": {"parameters": [
+                    {"name": "Authorization",     "value": f"Bearer {auth_token}"},
+                    {"name": "media-type-family", "value": "STILLIMAGE"},
+                    {"name": "Content-Type",      "value": "image/jpeg"}
+                ]},
+                "sendBody": True,
+                "contentType": "binaryData",
+                "inputDataFieldName": "data",
+                "options": {"response": {"response": {"neverError": True}},
+                            "timeout": 30000}}}
+
 def n_tg(name, chat_id, text, pos):
     return {"id": nid(), "name": name, "type": "n8n-nodes-base.telegram",
             "typeVersion": 1.2, "position": pos,
@@ -543,7 +569,10 @@ const resp = $json;
 const status = resp.statusCode || resp.status || 200;
 const post_id = resp.id || resp.headers?.['x-restli-id'] || 'unknown';
 if (status >= 400) throw new Error('LinkedIn error '+status+': '+JSON.stringify(resp).substring(0,300));
-const prev = $('Preparar LinkedIn Body').first().json;
+// Funciona para ambas rutas: con imagen (Preparar Body Imagen) o sin imagen (Preparar LinkedIn Body)
+let prev = {};
+try { prev = $('Preparar Body Imagen').first().json; } catch(e) {}
+if (!prev.post_text) { try { prev = $('Preparar LinkedIn Body').first().json; } catch(e) {} }
 return [{ json: { ...prev, post_id, linkedin_status: status, publicado_en: new Date().toISOString() } }];
 '''
 
@@ -554,6 +583,54 @@ return [{ json: {
   motivo:  'rechazado_telegram_v2',
   fecha:   new Date().toISOString().substring(0,16).replace('T',' ')
 } }];
+'''
+
+REGISTER_UPLOAD_BODY = json.dumps({
+    "registerUploadRequest": {
+        "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+        "owner": LINKEDIN_AUTHOR,
+        "serviceRelationships": [{"relationshipType": "OWNER",
+                                   "identifier": "urn:li:userGeneratedContent"}]
+    }
+})
+
+CODE_EXTR_UP_AP = r'''
+const reg = $json;
+const mech = reg.value?.uploadMechanism;
+const upload_url = mech?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl || '';
+const asset_id = reg.value?.asset || '';
+const fila = $('Encontrar Post Guardado').first().json;
+return [{ json: { ...fila, upload_url, asset_id } }];
+'''
+
+CODE_PREP_BIN_AP = r'''
+const asset = $('Extraer URL Upload').first().json;
+const dlBinary = $('Descargar Imagen').first().binary;
+const binaryData = (dlBinary && dlBinary.data) ? dlBinary : null;
+if (!binaryData) throw new Error('No se pudo descargar la imagen para subir a LinkedIn');
+return [{ json: asset, binary: binaryData }];
+'''
+
+CODE_PREP_LI_IMG = f'''
+const d = $('Encontrar Post Guardado').first().json;
+const asset_id = $('Extraer URL Upload').first().json.asset_id || '';
+const imagen_credit = d.imagen_credit || '';
+const credit_line = imagen_credit ? '\\n\\n📷 ' + imagen_credit : '';
+const full_text = (d.post_text || '') + credit_line;
+const body = {{
+  author: '{LINKEDIN_AUTHOR}',
+  lifecycleState: 'PUBLISHED',
+  specificContent: {{
+    'com.linkedin.ugc.ShareContent': {{
+      shareCommentary: {{ text: full_text }},
+      shareMediaCategory: 'IMAGE',
+      media: [{{ status: 'READY', media: asset_id,
+                description: {{ text: '' }}, title: {{ text: '' }} }}]
+    }}
+  }},
+  visibility: {{ 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }}
+}};
+return [{{ json: {{ ...d, linkedin_body: JSON.stringify(body), asset_id }} }}];
 '''
 
 # ─── BUILD WORKFLOW ───────────────────────────────────────────────────
@@ -643,31 +720,61 @@ def build():
     ack_tg  = add(n_respond("ACK Telegram",                         [260, 700]))
     cb_par  = add(n_code   ("Parsear Callback",   CODE_CB_PARSE,    [520, 700]))
 
-    # Answer callback (quitar loading en botón)
+    # Answer callback (quitar loading en botón) — usa datos de cb_par directo
     ans_cb  = add(n_http("Answer Callback", "POST",
         f"{TELEGRAM_API}/answerCallbackQuery", [780, 700],
         form_params={"callback_query_id": "={{ $json.callback_id }}", "text": "✅"}
     ))
 
     # Actualizar markup (quitar botones del mensaje)
+    # BUG FIX: referenciar Parsear Callback porque $json aquí es la respuesta HTTP de ans_cb
     upd_mkup = add(n_http("Limpiar Botones TG", "POST",
         f"{TELEGRAM_API}/editMessageReplyMarkup", [1040, 700],
         form_params={
-            "chat_id":    "={{ $json.chat_id }}",
-            "message_id": "={{ $json.message_id }}",
+            "chat_id":    "={{ $('Parsear Callback').first().json.chat_id }}",
+            "message_id": "={{ $('Parsear Callback').first().json.message_id }}",
             "reply_markup": '{"inline_keyboard":[]}'
         }
     ))
 
-    router  = add(n_switch("Router Decisión", "={{ $json.accion }}",
-                            ["aprobar", "rechazar"], [1300, 700]))
+    # BUG FIX: expresión correcta — $json.accion se pierde tras los nodos HTTP anteriores
+    router  = add(n_switch("Router Decisión",
+                            "={{ $('Parsear Callback').first().json.accion }}",
+                            ["aprobar", "rechazar", "regenerar"], [1300, 700]))
 
     # -- APROBAR --
     lr_temas = add(n_sheets_read("Leer Temas Aprobacion", "Temas", TEMAS_GID, [1560, 560]))
     lr_fila  = add(n_code("Encontrar Post Guardado", CODE_LEER_POST_WS, [1820, 560]))
-    prep_li  = add(n_code("Preparar LinkedIn Body",  CODE_PREP_LI,      [2080, 560]))
+
+    # Verificar si hay imagen guardada en el Sheet
+    if_img   = add(n_if("¿Tiene Imagen?",
+                        "={{ $json.imagen_url }}", "notEquals", "", [2080, 560]))
+
+    # -- APROBAR con imagen (TRUE): registrar asset → descargar → subir → publicar
+    reg_ast  = add(n_http("Registrar Asset", "POST",
+        "https://api.linkedin.com/v2/assets?action=registerUpload", [2340, 420],
+        body_json=REGISTER_UPLOAD_BODY,
+        headers_extra={
+            "Authorization": f"Bearer {LINKEDIN_TOKEN}",
+            "Content-Type": "application/json",
+            "X-Restli-Protocol-Version": "2.0.0"
+        }
+    ))
+    extr_up  = add(n_code("Extraer URL Upload",   CODE_EXTR_UP_AP,   [2600, 420]))
+    dl_img   = add(n_http_bin_download("Descargar Imagen",
+        "={{ $('Encontrar Post Guardado').first().json.imagen_url }}", [2860, 420]))
+    prp_bin  = add(n_code("Preparar Binario",      CODE_PREP_BIN_AP,  [3120, 420]))
+    up_img   = add(n_http_bin_upload("Subir Imagen LinkedIn",
+        "={{ $('Extraer URL Upload').first().json.upload_url }}", [3380, 420],
+        LINKEDIN_TOKEN))
+    prep_li_img = add(n_code("Preparar Body Imagen", CODE_PREP_LI_IMG, [3640, 420]))
+
+    # -- APROBAR sin imagen (FALSE): publicar solo texto
+    prep_li  = add(n_code("Preparar LinkedIn Body",  CODE_PREP_LI,      [2340, 700]))
+
+    # Publicar (compartido por ambas rutas — solo una corre por ejecución)
     pub_li   = add(n_http("Publicar LinkedIn", "POST",
-        "https://api.linkedin.com/v2/ugcPosts", [2340, 560],
+        "https://api.linkedin.com/v2/ugcPosts", [3900, 560],
         body_json="={{ $json.linkedin_body }}",
         headers_extra={
             "Authorization": f"Bearer {LINKEDIN_TOKEN}",
@@ -675,7 +782,7 @@ def build():
             "X-Restli-Protocol-Version": "2.0.0"
         }
     ))
-    val_li   = add(n_code("Validar LinkedIn",  CODE_VAL_LI, [2600, 560]))
+    val_li   = add(n_code("Validar LinkedIn",  CODE_VAL_LI, [4160, 560]))
     reg_pub  = add(n_sheets_update("Registrar Publicación", TEMAS_GID, "Temas", {
         "id":              "={{ $json.id }}",
         "estado":          "publicado",
@@ -684,20 +791,34 @@ def build():
         "veces_publicado": "={{ (parseInt($json.veces_publicado||0)) + 1 }}",
         "imagen_url":      "={{ $json.imagen_url || '' }}",
         "post_text":       "={{ $json.post_text || '' }}"
-    }, "id", [2860, 560]))
+    }, "id", [4420, 560]))
     tg_ok    = add(n_tg("Telegram Publicado ✅", CHAT_ID,
-        "✅ <b>Post publicado en LinkedIn</b>\n\nTema: {{ $json.tema }}\nER esperado: {{ ($json.er_promedio*100).toFixed(2) }}%\nCalidad: {{ $json.calidad_score }}/100",
-        [3120, 560]))
+        "✅ <b>Post publicado en LinkedIn</b>\n\nTema: {{ $json.tema_nombre || $json.tema || '' }}\nPost ID: {{ $json.post_id }}",
+        [4680, 560]))
 
     # -- RECHAZAR --
     save_r = add(n_sheets_append("Guardar Rechazo", RECHAZOS_GID, "Rechazos", {
-        "tema_id": "={{ $json.tema_id }}",
+        "tema_id": "={{ $('Parsear Callback').first().json.tema_id }}",
         "motivo":  "rechazado_telegram_v2",
         "fecha":   "={{ $now.format('yyyy-MM-dd HH:mm') }}"
     }, [1560, 840]))
     tg_no  = add(n_tg("Telegram Rechazado ❌", CHAT_ID,
         "❌ Post rechazado. El tema queda disponible para la próxima generación.",
         [1820, 840]))
+
+    # -- REGENERAR --
+    save_reg = add(n_sheets_append("Guardar Regeneracion", RECHAZOS_GID, "Rechazos", {
+        "tema_id": "={{ $('Parsear Callback').first().json.tema_id }}",
+        "motivo":  "regenerado_telegram_v2",
+        "fecha":   "={{ $now.format('yyyy-MM-dd HH:mm') }}"
+    }, [1560, 1060]))
+    call_gen = add(n_http("Trigger Nuevo Post", "POST",
+        f"https://n8n.camiloayala.net/webhook/ma-writer-manual", [1820, 1060],
+        body_json=json.dumps({"trigger": "regenerar_telegram"})
+    ))
+    tg_reg   = add(n_tg("Telegram Regenerando", CHAT_ID,
+        "🔄 Regenerando post nuevo. Llega en 2-3 minutos con botones de aprobación.",
+        [1820, 1180]))
 
     # ── CONEXIONES ────────────────────────────────────────────────────
 
@@ -735,23 +856,45 @@ def build():
     connect(conn, save_w["name"], tg_send["name"])
 
     # Path B: Telegram Entry → ACK + Parse (parallel)
-    connect(conn, tg_wh["name"],   ack_tg["name"])
-    connect(conn, tg_wh["name"],   cb_par["name"])
-    connect(conn, cb_par["name"],  ans_cb["name"])
-    connect(conn, ans_cb["name"],  upd_mkup["name"])
+    connect(conn, tg_wh["name"],    ack_tg["name"])
+    connect(conn, tg_wh["name"],    cb_par["name"])
+    connect(conn, cb_par["name"],   ans_cb["name"])
+    connect(conn, ans_cb["name"],   upd_mkup["name"])
     connect(conn, upd_mkup["name"], router["name"])
 
-    # Router: aprobar(0) → approve flow, rechazar(1) → reject flow
-    connect(conn, router["name"], lr_temas["name"], out=0)
-    connect(conn, router["name"], save_r["name"],   out=1)
+    # Router: aprobar(0) → approve, rechazar(1) → reject, regenerar(2) → regenerate
+    connect(conn, router["name"], lr_temas["name"],  out=0)
+    connect(conn, router["name"], save_r["name"],    out=1)
+    connect(conn, router["name"], save_reg["name"],  out=2)
 
-    # Approve flow
-    for a, b in [(lr_temas, lr_fila), (lr_fila, prep_li), (prep_li, pub_li),
-                 (pub_li, val_li), (val_li, reg_pub), (reg_pub, tg_ok)]:
-        connect(conn, a["name"], b["name"])
+    # Approve flow: read sheet → find row → check image
+    connect(conn, lr_temas["name"], lr_fila["name"])
+    connect(conn, lr_fila["name"],  if_img["name"])
+
+    # Image path (TRUE): register asset → extract URL → download → prep binary → upload → prepare body
+    connect(conn, if_img["name"],   reg_ast["name"],     out=0)
+    connect(conn, reg_ast["name"],  extr_up["name"])
+    connect(conn, extr_up["name"],  dl_img["name"])
+    connect(conn, dl_img["name"],   prp_bin["name"])
+    connect(conn, prp_bin["name"],  up_img["name"])
+    connect(conn, up_img["name"],   prep_li_img["name"])
+    connect(conn, prep_li_img["name"], pub_li["name"])
+
+    # Text-only path (FALSE)
+    connect(conn, if_img["name"],   prep_li["name"],     out=1)
+    connect(conn, prep_li["name"],  pub_li["name"])
+
+    # Shared publish chain
+    connect(conn, pub_li["name"],   val_li["name"])
+    connect(conn, val_li["name"],   reg_pub["name"])
+    connect(conn, reg_pub["name"],  tg_ok["name"])
 
     # Reject flow
-    connect(conn, save_r["name"], tg_no["name"])
+    connect(conn, save_r["name"],   tg_no["name"])
+
+    # Regenerate flow: save to Rechazos → trigger new generation + notify Telegram (parallel)
+    connect(conn, save_reg["name"], call_gen["name"])
+    connect(conn, save_reg["name"], tg_reg["name"])
 
     return {
         "name": "[MA] WRITER — Motor 3 Pasos",
