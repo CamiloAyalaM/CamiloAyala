@@ -44,8 +44,14 @@ jobs:
             });
 
             try {
+              // ESTA ES LA LÍNEA QUE PREGUNTAS:
+              // Busca la carpeta 'workflows' en la raíz del repositorio
               const dir = path.join(process.cwd(), 'workflows');
-              if (!fs.existsSync(dir)) return console.log('No workflows folder found.');
+              
+              if (!fs.existsSync(dir)) {
+                console.error('❌ Error: No se encontró la carpeta /workflows en la raíz.');
+                process.exit(1);
+              }
               
               const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
               const localWorkflows = files.map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')));
@@ -56,7 +62,6 @@ jobs:
               for (const local of localWorkflows) {
                 const existing = remoteWorkflows.find(r => r.name === local.name);
                 
-                // CONSTRUCCIÓN EXPLÍCITA DEL BODY SIN 'ACTIVE'
                 const body = {
                   name: local.name,
                   nodes: local.nodes,
@@ -69,29 +74,27 @@ jobs:
                 if (existing) {
                   await api.put('/workflows/' + existing.id, body);
                   workflowId = existing.id;
-                  console.log('✅ Updated: ' + local.name);
+                  console.log('✅ Actualizado: ' + local.name);
                 } else {
                   const created = await api.post('/workflows', body);
                   workflowId = created.data.id;
-                  console.log('✨ Created: ' + local.name);
+                  console.log('✨ Creado: ' + local.name);
                 }
 
-                // GESTIÓN DE ESTADO POST-ENVÍO
                 if (local.active !== undefined) {
-                  const endpoint = \`/workflows/\${workflowId}/\${local.active ? 'activate' : 'deactivate'}\`;
-                  await api.post(endpoint).catch(e => console.log('  ⚠️ Status change failed (Normal if already in that state)'));
+                  const action = local.active ? 'activate' : 'deactivate';
+                  await api.post(\`/workflows/\${workflowId}/\${action}\`).catch(() => {});
                 }
               }
 
-              // PRUNING: Borrar lo que no esté en Git
               for (const remote of remoteWorkflows) {
                 if (!localWorkflows.some(l => l.name === remote.name)) {
                   await api.delete('/workflows/' + remote.id);
-                  console.log('🗑️ Deleted: ' + remote.name);
+                  console.log('🗑️ Borrado de n8n: ' + remote.name);
                 }
               }
             } catch (e) {
-              console.error('❌ API Error:', e.response?.data || e.message);
+              console.error('❌ Error de API:', e.response?.data || e.message);
               process.exit(1);
             }
           }
