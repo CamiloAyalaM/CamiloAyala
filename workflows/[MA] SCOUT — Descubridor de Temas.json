@@ -7,7 +7,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 11 * * 1,3,5"
+              "expression": "0 6 * * *"
             }
           ]
         }
@@ -186,7 +186,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Scout Qwen no devolvió contenido');\n\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\n\nlet resultado;\ntry { resultado = JSON.parse(s); }\ncatch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/); if (!m) throw new Error('Sin JSON en Scout: '+s.substring(0,200));\n  resultado = JSON.parse(m[0]);\n}\n\nconst temas = resultado.temas_propuestos || resultado.temas || [];\nif (!temas.length) throw new Error('Scout no extrajo temas: '+s.substring(0,300));\n\nreturn temas.map(t => ({ json: t }));\n"
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Scout Qwen no devolvió contenido');\n\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\n\n// Eliminar TODOS los bloques <think>...</think> (incluyendo sin cierre)\ns = s.replace(/<think>[\\s\\S]*?<\\/think>/gi, '').trim();\n// Si quedó un <think> sin cierre, tomar solo lo que está después\nconst tmOpen = s.lastIndexOf('<think>');\nconst tmClose = s.lastIndexOf('</think>');\nif (tmOpen > tmClose) {\n  // <think> abierto sin cerrar — buscar el JSON después\n  const afterThink = s.substring(tmOpen);\n  const jsonStart = afterThink.search(/[\\[{]/);\n  if (jsonStart > -1) s = afterThink.substring(jsonStart);\n}\n// Fallback: si hay </think> suelto, tomar lo de después\nconst tmFallback = s.match(/<\\/think>\\s*([\\s\\S]*)/);\nif (tmFallback) s = tmFallback[1].trim();\n\nlet resultado;\ntry { resultado = JSON.parse(s); }\ncatch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/);\n  if (!m) throw new Error('Sin JSON en Scout: ' + s.substring(0, 300));\n  resultado = JSON.parse(m[0]);\n}\n\nconst temas = resultado.temas_propuestos || resultado.temas || [];\nif (!temas.length) throw new Error('Scout no extrajo temas: ' + s.substring(0, 300));\n\nreturn temas.map(t => ({ json: t }));\n"
       },
       "id": "bb1e471b-5b74-4c52-98a2-7b92b2f4ad97",
       "name": "Parsear Temas Scout",
@@ -229,7 +229,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// Filtrar temas que ya existen en el Sheet para evitar duplicados\nconst temas_propuestos = $input.all().map(i => i.json);\nconst temas_existentes = $('Leer Temas Existentes').all().map(i => (i.json.tema||i.json.tema_nombre||'').toLowerCase().trim());\n\nconst temas_nuevos = temas_propuestos.filter(t => {\n  const nombre = (t.tema_nombre || t.tema || '').toLowerCase().trim();\n  if (!nombre) return false;\n  // Verificar similitud básica (no exacta) para evitar duplicados semánticos\n  return !temas_existentes.some(ex => {\n    if (!ex) return false;\n    // Dividir en palabras clave y ver si hay mucho solapamiento\n    const palabras_nuevo = nombre.split(/\\s+/).filter(p => p.length > 4);\n    const solapamiento = palabras_nuevo.filter(p => ex.includes(p)).length;\n    return solapamiento >= 2; // Si 2+ palabras clave coinciden, considerarlo duplicado\n  });\n});\n\nif (temas_nuevos.length === 0) {\n  return [{ json: { _sin_temas_nuevos: true, mensaje: 'Todos los temas propuestos ya existen en el Sheet' } }];\n}\n\nreturn temas_nuevos.map(t => ({ json: t }));\n"
+        "jsCode": "\n// Filtrar temas que ya existen en el Sheet para evitar duplicados\nconst temas_propuestos = $('Parsear Temas Scout').all().map(i => i.json);\nconst temas_existentes = $('Leer Temas Existentes').all().map(i => (i.json.tema||i.json.tema_nombre||'').toLowerCase().trim());\n\nconst temas_nuevos = temas_propuestos.filter(t => {\n  const nombre = (t.tema_nombre || t.tema || '').toLowerCase().trim();\n  if (!nombre) return false;\n  // Verificar similitud básica (no exacta) para evitar duplicados semánticos\n  return !temas_existentes.some(ex => {\n    if (!ex) return false;\n    // Dividir en palabras clave y ver si hay mucho solapamiento\n    const palabras_nuevo = nombre.split(/\\s+/).filter(p => p.length > 4);\n    const solapamiento = palabras_nuevo.filter(p => ex.includes(p)).length;\n    return solapamiento >= 2; // Si 2+ palabras clave coinciden, considerarlo duplicado\n  });\n});\n\nif (temas_nuevos.length === 0) {\n  return [{ json: { _sin_temas_nuevos: true, mensaje: 'Todos los temas propuestos ya existen en el Sheet' } }];\n}\n\nreturn temas_nuevos.map(t => ({ json: t }));\n"
       },
       "id": "f3acc34d-9fa0-4251-8eae-da43ecb97393",
       "name": "Filtrar Temas Nuevos",
@@ -446,11 +446,6 @@
       "main": [
         [
           {
-            "node": "Filtrar Temas Nuevos",
-            "type": "main",
-            "index": 0
-          },
-          {
             "node": "Leer Temas Existentes",
             "type": "main",
             "index": 0
@@ -496,6 +491,17 @@
         [
           {
             "node": "Telegram Scout ✅",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas Existentes": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Temas Nuevos",
             "type": "main",
             "index": 0
           }
