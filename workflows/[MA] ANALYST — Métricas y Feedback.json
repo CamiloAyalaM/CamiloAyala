@@ -250,7 +250,28 @@
       ]
     },
     {
-      "parameters": {},
+      "parameters": {
+        "resource": "chat",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen2.5:32b",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un agente analista de métricas de LinkedIn. Analiza los datos de rendimiento de posts y genera insights accionables.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con insights sobre:\n- Patrones de rendimiento por área, tono y tipo de post\n- Qué funciona mejor y qué evitar\n- Recomendaciones concretas para mejorar el engagement\n- Tendencias detectadas\n\nNo incluyas texto fuera del JSON.",
+              "role": "system"
+            },
+            {
+              "content": "=Analiza estas métricas de rendimiento de posts de LinkedIn y genera insights:\n\n{{ $json.texto_analisis }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
       "id": "7c190116-ff41-456e-b04d-aff49e6368cf",
       "name": "🧠 Agente Analyst Qwen",
       "type": "n8n-nodes-base.openAi",

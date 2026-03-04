@@ -127,7 +127,28 @@
       ]
     },
     {
-      "parameters": {},
+      "parameters": {
+        "resource": "chat",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen2.5:32b",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un agente de feedback para una estrategia de contenido en LinkedIn. Analiza las correlaciones de rendimiento y genera recomendaciones.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"ajustes\": {\n    \"areas_boost\": [\"áreas con mejor rendimiento para potenciar\"],\n    \"areas_penalizar\": [\"áreas con bajo rendimiento para reducir\"],\n    \"tonos_boost\": [\"tonos que mejor funcionan\"]\n  },\n  \"conclusiones\": {\n    \"area_estrella\": \"área con mejor ER\",\n    \"tono_ganador\": \"tono más efectivo\",\n    \"dia_optimo\": \"día de la semana con mejor rendimiento\",\n    \"patron_principal\": \"descripción del patrón principal detectado\"\n  },\n  \"proximas_semanas\": {\n    \"enfoque\": \"recomendación de enfoque\",\n    \"evitar\": \"qué evitar\"\n  },\n  \"alerta\": \"alerta importante si la hay, o cadena vacía\"\n}\n\nNo incluyas texto fuera del JSON.",
+              "role": "system"
+            },
+            {
+              "content": "=Analiza estas correlaciones de rendimiento y genera recomendaciones:\n\n{{ $json.texto_correlaciones }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
       "id": "dc24d5d6-3112-4b2d-9074-37355e271c40",
       "name": "🔄 Agente FEEDBACK Qwen",
       "type": "n8n-nodes-base.openAi",
