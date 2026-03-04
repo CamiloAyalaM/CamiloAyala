@@ -113,7 +113,7 @@
     },
     {
       "parameters": {
-        "url": "https://api.linkedin.com/rest/posts?q=authors&authors=urn%3Ali%3Aperson%3AjAuei1KlC1&count=25",
+        "url": "={{ \"https://api.linkedin.com/rest/posts?q=authors&authors=urn%3Ali%3Aperson%3A\" + $json.id + \"&count=25\" }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -144,7 +144,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        784,
+        912,
         0
       ]
     },
@@ -437,6 +437,33 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/me",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer AQX4602Cp2_JLd_glMVPNpm6K5v4rDQu3XkjPOm_TaMR_g6GRWMoOFGN2v-W_2maK097MGg2-AqC8JABRtx37sizo4Qmi3mscJRMK1ui6IR-_05wno8JgbKbxh8qPflZeQ-XN_62NIidxriOsgpxvNSyOacP97nwctwC0hSqyYNOodbd9TmimdXD0L-4ejSrfUeFzxOx3lU6THw41B4Rs6ud26XCxP-POy-sY0ppDiEiqxSkOsTwgTTTCaFWu1VumEQymVnADUj75vU9YHemJCztRj_fi-nubJugPnAf1aUMZ8YjAMQ6mwNxpgzDcSoHcRgVfXE7UXfDs3fUyqfD6NX6rHkEwQ"
+            },
+            {
+              "name": "LinkedIn-Version",
+              "value": "202501"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Obtener ID LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        0
+      ]
     }
   ],
   "pinData": {},
@@ -485,6 +512,17 @@
       ]
     },
     "Filtrar Posts a Actualizar": {
+      "main": [
+        [
+          {
+            "node": "Obtener ID LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener ID LinkedIn": {
       "main": [
         [
           {
