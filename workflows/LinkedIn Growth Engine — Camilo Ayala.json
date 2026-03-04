@@ -25,7 +25,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "linkedin-approval-webhook",
-        "responseMode": "responseNode",
+        "responseMode": "lastNode",
         "options": {}
       },
       "id": "183b2804-d1d4-4ef6-84d1-7ad61c7d9a8e",
