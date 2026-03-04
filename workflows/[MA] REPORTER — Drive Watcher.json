@@ -6,8 +6,8 @@
         "pollTimes": {
           "item": [{ "mode": "everyMinute" }]
         },
-        "triggerOn": "fileCreated",
-        "event": "fileCreated",
+        "triggerOn": "specificFolder",
+        "event": "specificFolder",
         "folderId": {
           "__rl": true,
           "mode": "id",
