@@ -6,14 +6,11 @@
         "pollTimes": {
           "item": [{ "mode": "everyMinute" }]
         },
-        "triggerOn": "fileCreated",
+        "event": "fileCreated",
         "folderId": {
           "__rl": true,
           "mode": "id",
           "value": "1_I_RkaFHP92q865kkRsTYkXgU_tzBqbp"
-        },
-        "options": {
-          "fileType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         }
       },
       "id": "drive-trigger",
