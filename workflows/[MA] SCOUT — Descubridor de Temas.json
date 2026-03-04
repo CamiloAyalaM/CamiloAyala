@@ -146,42 +146,26 @@
       ]
     },
     {
-      "parameters": {
-        "resource": "chat",
-        "modelId": {
-          "__rl": true,
-          "value": "qwen2.5:32b",
-          "mode": "id"
-        },
-        "messages": {
-          "values": [
-            {
-              "content": "Eres un agente scout de contenido para LinkedIn. Tu objetivo es analizar artículos y proponer temas relevantes para posts de LinkedIn de Camilo Ayala, un comunicador y diseñador estratégico colombiano.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"temas_propuestos\": [\n    {\n      \"tema_nombre\": \"nombre del tema\",\n      \"area\": \"diseño|educación|liderazgo|innovación|comunicación\",\n      \"tipo_post\": \"reflexión|caso|herramienta|provocación|tutorial\",\n      \"nivel_profundidad\": \"básico|intermedio|avanzado\",\n      \"tono\": \"directo|reflexivo|provocador|analítico\",\n      \"objetivo\": \"posicionamiento|engagement|educación|debate\",\n      \"score\": \"1.0-2.0\",\n      \"fuente_scout\": \"nombre de la fuente original\"\n    }\n  ]\n}\n\nExtrae 3-5 temas que sean relevantes para profesionales creativos en Latinoamérica. No incluyas texto fuera del JSON.",
-              "role": "system"
-            },
-            {
-              "content": "=Analiza los siguientes artículos y extrae temas para posts de LinkedIn:\n\n{{ $json.texto_combinado }}",
-              "role": "user"
-            }
-          ]
-        },
-        "options": {
-          "temperature": 0.3
-        },
-        "simplifyOutput": true
-      },
       "id": "57070509-e726-47ee-942c-5d6ade553564",
       "name": "🔍 Agente Scout Qwen",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 1.7,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1824,
         0
       ],
-      "credentials": {
-        "openAiApi": {
-          "id": "S4LeOiFztrgDaMM9",
-          "name": "Ollama"
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.10.100:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.6, options: { num_predict: 1500 }, messages: [{ role: 'system', content: `Eres un agente scout de contenido para LinkedIn. Tu objetivo es analizar artículos y proponer temas relevantes para posts de LinkedIn de Camilo Ayala, un comunicador y diseñador estratégico colombiano.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"temas_propuestos\": [\n    {\n      \"tema_nombre\": \"nombre del tema\",\n      \"area\": \"diseño|educación|liderazgo|innovación|comunicación\",\n      \"tipo_post\": \"reflexión|caso|herramienta|provocación|tutorial\",\n      \"nivel_profundidad\": \"básico|intermedio|avanzado\",\n      \"tono\": \"directo|reflexivo|provocador|analítico\",\n      \"objetivo\": \"posicionamiento|engagement|educación|debate\",\n      \"score\": \"1.0-2.0\",\n      \"fuente_scout\": \"nombre de la fuente original\"\n    }\n  ]\n}\n\nExtrae 3-5 temas que sean relevantes para profesionales creativos en Latinoamérica. No incluyas texto fuera del JSON.` }, { role: 'user', content: 'Analiza los siguientes artículos y extrae temas para posts de LinkedIn:\\n\\n' + $json.texto_combinado }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
         }
       }
     },
