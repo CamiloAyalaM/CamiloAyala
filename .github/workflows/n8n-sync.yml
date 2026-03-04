@@ -33,25 +33,6 @@ jobs:
           const fs = require('fs');
           const path = require('path');
 
-          const ALLOWED_SETTINGS = [
-            'executionOrder',
-            'saveDataSuccessExecution',
-            'saveExecutionProgress',
-            'saveManualExecutions',
-            'callerPolicy',
-            'errorWorkflow',
-            'timezone',
-            'executionTimeout',
-            'maxExecutionTimeout'
-          ];
-
-          function sanitizeSettings(settings) {
-            if (!settings || typeof settings !== 'object') return {};
-            return Object.fromEntries(
-              Object.entries(settings).filter(([k]) => ALLOWED_SETTINGS.includes(k))
-            );
-          }
-
           async function start() {
             const url = process.env.N8N_URL.trim().replace(/\/$/, '');
             const api = axios.create({
@@ -75,12 +56,15 @@ jobs:
               for (const local of localWorkflows) {
                 const existing = remoteWorkflows.find(r => r.name === local.name);
                 
+                // NOTA: La API de n8n v1 tiene un bug conocido donde rechaza
+                // campos validos en settings (executionOrder, callerPolicy, etc.)
+                // Por eso enviamos settings:{} y manejamos activacion por separado
                 const body = {
                   name: local.name,
                   nodes: local.nodes,
                   connections: local.connections,
-                  settings: sanitizeSettings(local.settings),
-                  staticData: local.staticData || {}
+                  settings: {},
+                  staticData: local.staticData || null
                 };
 
                 let workflowId;
@@ -94,12 +78,18 @@ jobs:
                   console.log('✨ Creado: ' + local.name);
                 }
 
-                if (local.active !== undefined) {
-                  const endpoint = \`/workflows/\${workflowId}/\${local.active ? 'activate' : 'deactivate'}\`;
-                  await api.post(endpoint).catch(e => console.log('  ⚠️ Estado sin cambios: ' + local.name));
+                // Activar/desactivar segun estado en Git
+                if (local.active === true) {
+                  await api.post(\`/workflows/\${workflowId}/activate\`)
+                    .then(() => console.log('  ⚡ Activado: ' + local.name))
+                    .catch(() => console.log('  ⚠️ Ya estaba activo: ' + local.name));
+                } else if (local.active === false) {
+                  await api.post(\`/workflows/\${workflowId}/deactivate\`)
+                    .catch(() => {});
                 }
               }
 
+              // PRUNING: Borrar workflows en n8n que no esten en Git
               for (const remote of remoteWorkflows) {
                 if (!localWorkflows.some(l => l.name === remote.name)) {
                   await api.delete('/workflows/' + remote.id);
