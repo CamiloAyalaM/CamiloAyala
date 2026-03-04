@@ -1,0 +1,1418 @@
+{
+  "name": "[MA] WRITER — Motor 3 Pasos",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 14 * * 1,3,5"
+            }
+          ]
+        }
+      },
+      "id": "cf1f5d38-c19f-427a-bb8b-26ebf16fee4c",
+      "name": "Trigger Diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -640,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma-writer-manual",
+        "options": {}
+      },
+      "id": "0f8cd4d3-7825-4d98-b2d5-a992d69a35a9",
+      "name": "Webhook Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        1776
+      ],
+      "webhookId": "88781193-e3e9-4fc7-9215-c3e30937e7ea"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "e6a697ee-aff6-4890-9c84-86c8ae30c73f",
+      "name": "Leer Temas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -368,
+        1472
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 830260036,
+          "mode": "list",
+          "cachedResultName": "Metricas"
+        },
+        "options": {}
+      },
+      "id": "dd3d1728-4b93-4046-b93f-21c0958e29fc",
+      "name": "Leer Metricas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -368,
+        1216
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 148549058,
+          "mode": "list",
+          "cachedResultName": "Rechazos"
+        },
+        "options": {}
+      },
+      "id": "c2f609ad-ffe2-404c-abc3-526bc2961f2c",
+      "name": "Leer Rechazos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -368,
+        1744
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "23373980-b8e5-4812-8d5d-6d33c2304889",
+      "name": "Merge Sheets",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -112,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst all = $input.all().map(i => i.json);\nconst temas_raw    = all.filter(i => 'id' in i && 'tema' in i && 'score' in i);\nconst metricas_raw = all.filter(i => 'post_id' in i && 'likes' in i);\nconst rechazos_raw = all.filter(i => 'motivo' in i && !('score' in i));\nconst temasMap = {};\nfor (const t of temas_raw) {\n  const id = (t.id || '').trim();\n  if (!id) continue;\n  if (!temasMap[id] || (t.row_number || 999) < (temasMap[id].row_number || 999)) temasMap[id] = t;\n}\nreturn [{ json: { temas: Object.values(temasMap), metricas: metricas_raw, rechazos: rechazos_raw } }];\n"
+      },
+      "id": "504f6cd2-6f85-4132-8de7-d2c4dba51e8e",
+      "name": "Parsear Sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst { temas, metricas, rechazos } = $('Parsear Sheets').first().json;\nconst ahora = Date.now();\nconst candidatos = temas.filter(t => {\n  const e = (t.estado || '').toLowerCase().trim();\n  if (!e || e === 'pendiente' || e === 'disponible') return true;\n  if (e === 'publicado' && t.fecha_pub) return (ahora - new Date(t.fecha_pub).getTime()) > 21*86400000;\n  return false;\n});\nif (!candidatos.length) throw new Error('Sin temas disponibles en el Sheet Temas.');\n\nconst erPorArea = {};\nmetricas.forEach(m => { const a = m.area||m.tema||''; const er = parseFloat(m.engagement_rate)||0; if (!erPorArea[a]) erPorArea[a]=[]; erPorArea[a].push(er); });\nconst todosER = metricas.map(m => parseFloat(m.engagement_rate)||0).filter(e=>e>0).sort((a,b)=>a-b);\nconst p25 = todosER[Math.floor(todosER.length*.25)]||0.0097;\nconst p75 = todosER[Math.floor(todosER.length*.75)]||0.0181;\nconst hace14 = ahora - 14*86400000;\nconst rechRec = {};\nrechazos.forEach(r => { const f = new Date(r.fecha||0).getTime(); if(f>hace14) rechRec[r.tema_id]=(rechRec[r.tema_id]||0)+1; });\n\nconst dw = new Date().getDay();\nconst tonosDia = {1:'reflexivo',3:'herramienta',5:'provocador'};\nconst tonoCtx = tonosDia[dw]||'directo';\nconst dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];\n\ncandidatos.forEach(t => {\n  let s = parseFloat(t.score||1);\n  s *= (1 - Math.min(parseInt(t.veces_publicado||0)*.20, .60));\n  if (t.fecha_pub) { const d=(ahora-new Date(t.fecha_pub).getTime())/86400000; s*=(1+Math.min((d/7)*.05,.40)); } else s*=1.5;\n  const erA = erPorArea[t.area||'']||[];\n  if (erA.length) { const avg=erA.reduce((a,b)=>a+b,0)/erA.length; if(avg>p75)s*=1.3; else if(avg<p25)s*=0.8; }\n  s *= Math.pow(.75, rechRec[t.id]||0);\n  if ((t.tono||'').toLowerCase()===tonoCtx) s*=1.05;\n  s *= (.85+Math.random()*.45);\n  if (t.fecha_propuesto) { const dp=(ahora-new Date(t.fecha_propuesto).getTime())/86400000; if(dp<7)s*=.4; }\n  t.score_final = Math.round(s*100)/100;\n});\n\nconst top3 = candidatos.sort((a,b)=>b.score_final-a.score_final).slice(0,3);\nconst total = top3.reduce((a,t)=>a+t.score_final,0);\nlet r = Math.random()*total, ganador = top3[0];\nfor (const t of top3) { r -= t.score_final; if (r<=0) { ganador=t; break; } }\nconst erProm = todosER.length ? todosER.reduce((a,b)=>a+b,0)/todosER.length : 0.0139;\n\nreturn [{ json: {\n  ...ganador,\n  tema: ganador.tema_nombre || ganador.tema,\n  tipo_post: ganador.tipo_post||'reflexión',\n  nivel_profundidad: ganador.nivel_profundidad||'avanzado',\n  tono: ganador.tono||tonoCtx,\n  objetivo: ganador.objetivo||'posicionamiento',\n  contexto_dia: `${dias[dw]} — tono recomendado: ${tonoCtx}`,\n  tone_hint: `ER promedio histórico: ${(erProm*100).toFixed(2)}%`,\n  er_promedio: erProm\n}}];\n"
+      },
+      "id": "e63af78a-8474-4e5f-924f-7a0808596868",
+      "name": "Calcular Prioridad",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sp = `Actúas como estratega senior de contenido para LinkedIn especializado en posicionamiento de profesionales creativos latinoamericanos.\n\nEscribes en primera persona como Camilo Ayala Monje (@camiloayalam).\n\nPERFIL REAL DE CAMILO:\n- Comunicador y diseñador estratégico con 12+ años de experiencia\n- Profesor en Universidad El Bosque (Coordinador de Admisiones + Docente en Diseño de Comunicación)\n- Ex-profesor Universidad de Los Andes (7 años) y Universidad Sergio Arboleda\n- Especialidades: Diseño estratégico, comunicación digital, educación, marca personal para creativos\n- Bogotá, Colombia\n\nRED REAL (5,065 conexiones):\n- Top: Diseñador gráfico, Director creativo, CEO, Gerente general, Community Manager, Founder\n- Perfil dominante: líderes creativos, directores, fundadores en Colombia y Latam\n- Industrias: Diseño, Educación, Publicidad, Marketing digital\n\nÁREAS DE AUTORIDAD:\n1. Innovación en educación y comunicación digital\n2. Diseño estratégico y creatividad aplicada\n3. Marketing digital y automatización\n4. Marca personal para creativos latinoamericanos\n\nREGLAS DE ESCRITURA — CRÍTICAS:\n- Escribe como un humano culto que piensa en voz alta, NO como una IA generando contenido\n- Oraciones cortas cuando hay tensión. Párrafos cortos. Nunca más de 3 líneas seguidas\n- PROHIBIDO inventar estadísticas, porcentajes, encuestas o datos que no existan\n- PROHIBIDO inventar nombres de personas reales (Juan Pablo, María, etc.)\n- PROHIBIDO repetir la misma idea dos veces en el mismo post\n- PROHIBIDO frases de IA: En el mundo actual, Es fundamental, La clave está en, Es importante, cada vez más, Sin lugar a dudas, No es casualidad que, Más allá de, En definitiva, Lo que muchos no saben, Esto nos lleva a, Cabe mencionar, Vale la pena destacar\n- Sin emojis. Sin signos de exclamación. Entre 1800 y 2500 caracteres\n- Párrafos separados por línea en blanco. Nunca bloques de texto corrido\n- Postura clara y propia — nunca neutral, nunca motivacional genérico\n- Si usas un dato, que sea verificable o presentado como experiencia personal\n- La voz es directa, con criterio, sin grandilocuencia\n\nLENGUAJE: español bogotano culto — neutro, directo, sin afectación regional\nVOCABULARIO PROHIBIDO: sinergia, disruptivo, innovador, transformacional, paradigma, ecosistema, impacto positivo, empoderamiento\n\nResponde ÚNICAMENTE con JSON válido. Sin backticks, sin markdown, sin texto adicional.`;\nreturn [{ json: { system_prompt: sp } }];"
+      },
+      "id": "7ea663c1-5249-410a-9325-a6b9e8deddc0",
+      "name": "System Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst tema = $('Calcular Prioridad').first().json;\nconst sp   = $('System Prompt').first().json.system_prompt;\nreturn [{ json: { ...tema, system_prompt: sp } }];\n"
+      },
+      "id": "93aeb4e1-90ec-4af8-8499-60d507f867fc",
+      "name": "Combinar Contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.10.100:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.3, messages: [{ role: 'system', content: $json.system_prompt }, { role: 'user', content: 'Analiza este tema para un post de LinkedIn y devuelve un JSON con: tension, ejemplo_concreto, creencia_a_contradecir, postura_central, gancho (primera línea del post), puntos_desarrollo (array de 3-5 puntos), palabras_prohibidas_contexto (array).\\n\\nTEMA: ' + ($json.tema || '') + '\\nÁREA: ' + ($json.area || 'general') + '\\nTONO: ' + ($json.tono || 'directo') + '\\nTIPO: ' + ($json.tipo_post || 'reflexión') + '\\nCONTEXTO DÍA: ' + ($json.contexto_dia || '') + '\\n' + ($json.tone_hint || '') }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "5d4bb087-5998-43d3-b6d5-8e101ebf6ee5",
+      "name": "🔍 Agente Analista",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1184,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Agente Analista vacío');\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet o;\ntry { o = JSON.parse(s); } catch(e) { const m=s.match(/\\{[\\s\\S]*\\}/); if(!m) throw new Error('Sin JSON en Analista: '+s.substring(0,200)); o=JSON.parse(m[0]); }\nconst pts = (o.puntos_desarrollo||[]).join('\\n→ ');\nconst proh = (o.palabras_prohibidas_contexto||[]).join(', ');\nconst inj = `TENSIÓN: ${o.tension||''}\\nEJEMPLO CONCRETO: ${o.ejemplo_concreto||''}\\nCREENCIA A CONTRADECIR: ${o.creencia_a_contradecir||''}\\nPOSTURA FINAL: ${o.postura_central||''}\\nGANCHO (usa este inicio exacto): ${o.gancho||''}\\nPUNTOS A DESARROLLAR:\\n→ ${pts}\\nPALABRAS PROHIBIDAS EN ESTE POST: ${proh}`;\nreturn [{ json: { ...$('Combinar Contexto').first().json, outline: o, outline_injection: inj } }];\n"
+      },
+      "id": "ab80acd4-0323-40a2-9c66-308dc292de2c",
+      "name": "Parsear Outline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.10.100:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.75, messages: [{ role: 'system', content: $('System Prompt').first().json.system_prompt }, { role: 'user', content: 'Escribe el post completo de LinkedIn basándote en este outline del Analista. Devuelve JSON con: post_text (el post completo, 1800-2500 chars), hook_type, imagen_descripcion, hashtags (array de 4-5).\\n\\n' + $json.outline_injection }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "7f53e55d-2055-4749-a887-de49e9735594",
+      "name": "✍️ Agente Escritor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1712,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Agente Escritor vacío');\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet d;\ntry { d = JSON.parse(s); } catch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/);\n  if (!m) throw new Error('Sin JSON en Escritor: '+s.substring(0,200));\n  let t = m[0];\n  const op=(t.match(/\\{/g)||[]).length, cl=(t.match(/\\}/g)||[]).length;\n  for(let i=0;i<op-cl;i++) t+='}';\n  d = JSON.parse(t);\n}\nif (!d.post_text || d.post_text.length < 200) throw new Error('post_text muy corto: '+(d.post_text||'').length);\nconst prev = $('Parsear Outline').first().json;\nreturn [{ json: { ...prev, draft: d, draft_json_str: JSON.stringify(d) } }];\n"
+      },
+      "id": "8519b842-7c68-42ba-801c-325bc0266ad5",
+      "name": "Parsear Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Lee el historial ya cargado desde Parsear Sheets (dentro del mismo workflow)\nconst parsed = $('Parsear Sheets').first().json;\nconst temas    = parsed.temas    || [];\nconst metricas = parsed.metricas || [];\n\n// Build ER map: post_id → max ER\nconst erMap = {};\nmetricas.forEach(m => {\n  const er = parseFloat(m.engagement_rate) || 0;\n  if (!erMap[m.post_id] || er > erMap[m.post_id]) erMap[m.post_id] = er;\n});\n\n// Find published temas that have post_text stored and an ER record\nconst con_texto = temas\n  .filter(t => t.estado === 'publicado' && t.post_text && t.post_id && erMap[t.post_id])\n  .map(t => ({ ...t, best_er: erMap[t.post_id] }))\n  .sort((a, b) => b.best_er - a.best_er)\n  .slice(0, 2);\n\nlet ejemplos_str = '';\nif (con_texto.length > 0) {\n  ejemplos_str = '\\n\\nEJEMPLOS REALES DE POSTS DE CAMILO CON ALTO ENGAGEMENT:\\n';\n  ejemplos_str += '(Usa estos como referencia del TONO y RITMO — no copies frases)\\n';\n  con_texto.forEach((p, i) => {\n    const er_pct = (p.best_er * 100).toFixed(2);\n    ejemplos_str += `\\n[EJEMPLO ${i + 1} — ER real: ${er_pct}%]\\n`;\n    ejemplos_str += p.post_text.trim();\n    ejemplos_str += `\\n[FIN EJEMPLO ${i + 1}]\\n`;\n  });\n}\n\n// Pass through everything from Parsear Draft, just adding the examples\nconst prev = $('Parsear Draft').first().json;\nreturn [{ json: { ...prev, ejemplos_humanizador: ejemplos_str } }];\n"
+      },
+      "id": "1c59b112-165e-4cca-8964-f903eb308b32",
+      "name": "Extraer Ejemplos Top ER",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.10.100:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.4, messages: [{ role: 'system', content: $('System Prompt').first().json.system_prompt }, { role: 'user', content: 'Revisa este post y elimina cualquier rastro de tono IA. Mantén la estructura pero hazlo sonar más humano, más Camilo. Devuelve JSON con: post_text (versión final), hook_type, imagen_descripcion, hashtags.\\n\\nPOST ORIGINAL:\\n' + ($json.draft ? $json.draft.post_text : '') + '\\n' + ($json.ejemplos_humanizador || '') }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "a35baedd-f4c3-4fba-b42e-68187671db30",
+      "name": "🧹 Agente Humanizador",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2224,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nlet s = (raw||'').trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet fp;\ntry { fp = JSON.parse(s); } catch(e) { fp = $('Parsear Draft').first().json.draft || {}; }\nlet pt = (fp.post_text||'').trim().replace(/\\r\\n/g,'\\n').replace(/\\n{3,}/g,'\\n\\n').trim();\nif (!pt || pt.length < 200) pt = $('Parsear Draft').first().json.draft?.post_text || '';\nconst base = $('Parsear Outline').first().json;\nreturn [{ json: {\n  ...base,\n  post_text: pt,\n  hook_type: fp.hook_type || 'directo',\n  imagen_descripcion: fp.imagen_descripcion || base.imagen_descripcion || 'creative professional workspace',\n  hashtags: fp.hashtags || base.hashtags || ['#diseño','#comunicación','#educación','#Colombia'],\n  caracteres: pt.length,\n  parrafos: pt.split('\\n\\n').filter(p=>p.trim()).length\n}}];\n"
+      },
+      "id": "6e841ee7-7642-4894-89b9-4379fe578572",
+      "name": "Parsear Post Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $json;\nconst texto = data.post_text || '';\nlet score = 100;\nconst problemas = [];\nif (texto.length > 2700) { score -= 20; problemas.push('Largo: '+texto.length); }\nelse if (texto.length < 500) { score -= 35; problemas.push('Corto: '+texto.length); }\n['en el mundo actual','es fundamental','la clave está en','es importante','cada vez más',\n 'sin lugar a dudas','definitivamente','en definitiva','no es casualidad','más allá de',\n 'lo que muchos no saben','esto nos lleva','cabe mencionar','vale la pena destacar',\n 'sinergia','disruptivo','transformacional','paradigma','ecosistema','empoderamiento'\n].forEach(f => { if (texto.toLowerCase().includes(f)) { score-=8; problemas.push(`IA:\"${f}\"`); } });\nif (/\\p{Emoji_Presentation}/u.test(texto)) { score-=25; problemas.push('Emojis'); }\nconst excl = (texto.match(/!/g)||[]).length;\nif (excl>0) { score-=excl*15; problemas.push(`${excl} exclamaciones`); }\nif (texto.split('\\n\\n').filter(p=>p.trim()).length < 3) { score-=15; problemas.push('Pocos párrafos'); }\nif (/^(tema|tono|tipo|área|profundidad):/im.test(texto)) { score-=30; problemas.push('Metadata en texto'); }\nif (texto.trim().startsWith('#')) { score-=20; problemas.push('Empieza con #'); }\nscore = Math.max(0, score);\nreturn [{ json: { ...data, calidad_score: score, calidad_pasa: score >= 55, calidad_problemas: problemas,\n  calidad_label: score>=80?'🟢 Bueno':score>=55?'🟡 Aceptable':'🔴 Bajo' } }];\n"
+      },
+      "id": "75936e5c-d370-4710-b132-6cd592d46fda",
+      "name": "Validar Calidad",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "c55892f9-4448-4f2b-b17c-682530dc87d9",
+              "leftValue": "={{ $json.calidad_pasa }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "92e7c1a7-3bb0-4bbe-85f6-36260fdf9c5e",
+      "name": "¿Pasa Calidad?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3008,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $json;\nconst desc = (d.imagen_descripcion || 'creative professional design workspace Colombia').toLowerCase();\nconst query = encodeURIComponent(desc + ' professional editorial');\nreturn [{ json: {\n  ...d,\n  unsplash_url: 'https://api.unsplash.com/photos/random?query=' + query +\n                '&orientation=landscape&client_id=zH4HKmqhf9FTlBggBT9cntXXEzZXGnHN0Oc59zP7wLI'\n} }];\n"
+      },
+      "id": "8e8c82f3-e4da-4abd-9d1d-6b13551edddc",
+      "name": "Seleccionar Imagen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3264,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.unsplash_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "e372f8db-3210-401d-9f43-a3388d61af42",
+      "name": "Obtener Unsplash",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3520,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Seleccionar Imagen').first().json;\nconst resp = $json;\n\nlet img_url = '';\nlet img_credit = '';\n\nif (resp.urls?.regular) {\n  img_url = resp.urls.regular;\n  img_credit = 'Foto: ' + (resp.user?.name || 'Unsplash') + ' en Unsplash';\n} else if (resp.urls?.small) {\n  img_url = resp.urls.small;\n  img_credit = 'Foto: Unsplash';\n}\n\nif (!img_url || img_url.length < 10) {\n  const seed = (prev.id || 'design').replace(/[^a-zA-Z0-9]/g,'');\n  img_url = 'https://picsum.photos/seed/' + seed + '/1200/628';\n  img_credit = 'Imagen de referencia visual';\n}\n\nreturn [{ json: {\n  ...prev,\n  imagen_url: img_url,\n  imagen_credit: img_credit\n} }];\n"
+      },
+      "id": "0eb8ca78-9928-46fd-a84c-1008db85fd26",
+      "name": "Preparar Imagen Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $json;\nconst txt = (d.post_text||'');\nconst preview_text = txt.length > 600 ? txt.substring(0,597)+'...' : txt;\nconst hashtags = (d.hashtags||[]).join(' ');\nconst score = d.calidad_score||0;\nconst label = d.calidad_label||'';\nconst chars = d.caracteres || txt.length;\nconst outline = d.outline||{};\n\nfunction esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }\n\nconst caption = [\n  `📝 <b>${esc(d.tema||'').substring(0,60)}</b>`,\n  `Calidad: ${score}/100 ${label} · ${chars} chars`,\n  ``,\n  `─── TENSIÓN (Analista) ───`,\n  esc((outline.tension||'').substring(0,120)),\n  ``,\n  `─── INICIO DEL POST ───`,\n  esc(preview_text.split('\\n\\n')[0]||''),\n  ``,\n  `─── PREVIEW ───`,\n  esc(preview_text.substring(0,400)),\n  ``,\n  hashtags\n].join('\\n');\n\nconst keyboard = {\n  inline_keyboard: [\n    [\n      { text: '✅ Publicar', callback_data: `v2|aprobar|${d.id}` },\n      { text: '📝 Solo texto', callback_data: `v2|solo_texto|${d.id}` }\n    ],\n    [\n      { text: '🔄 Regenerar', callback_data: `v2|regenerar|${d.id}` },\n      { text: '❌ Rechazar', callback_data: `v2|rechazar|${d.id}` }\n    ]\n  ]\n};\n\nconst tg_keyboard_str = JSON.stringify(keyboard);\nreturn [{ json: { ...d, tg_caption: caption, tg_keyboard: keyboard, tg_keyboard_str } }];\n"
+      },
+      "id": "bf623221-efdb-4ef9-b642-1e6d2aaf19b7",
+      "name": "Preparar Preview TG",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4048,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Preparar Preview TG').first().json.id }}",
+            "post_text": "={{ $('Preparar Preview TG').first().json.post_text }}",
+            "imagen_url": "={{ $('Preparar Preview TG').first().json.imagen_url }}",
+            "imagen_credit": "={{ $('Preparar Preview TG').first().json.imagen_credit }}",
+            "estado": "esperando_v2",
+            "fecha_propuesto": "={{ $now.format('yyyy-MM-dd HH:mm') }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "80e32ce0-f419-45cd-9a9e-34192cf0ba60",
+      "name": "Guardar Post Pendiente",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4304,
+        1472
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7988109123:AAF9YWC7Q3VQ8x_M4p-cBtTzzjRC1GxbtQs/sendPhoto",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({chat_id: 1160149765, photo: $json.imagen_url || 'https://picsum.photos/seed/' + ($json.id || 'X') + '/1200/628', caption: ($json.tg_caption || '').substring(0, 1020) + (($json.tg_caption||'').length > 1020 ? '...' : ''), parse_mode: 'HTML', reply_markup: $json.tg_keyboard}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "8fee999d-3174-455c-b065-0a89485fc955",
+      "name": "Enviar Aprobacion TG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4560,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "⚠️ Post generado con calidad baja ({{ $json.calidad_score }}/100).\nProblemas: {{ $json.calidad_problemas.join(', ') }}\nSe descartó. Próximo ciclo intentará de nuevo.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "979b429f-dcd6-4af2-8046-7c2748acdee5",
+      "name": "Notificar Baja Calidad",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3264,
+        1776
+      ],
+      "webhookId": "3281f47f-a30e-444f-b143-579c3376a89a",
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma-writer-callback",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "050134f6-e88e-4d76-8674-d67518a4264e",
+      "name": "Telegram Entry MA",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        2176
+      ],
+      "webhookId": "613ee092-6de1-4c53-b2b3-f982f82d93b7"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "f859abd0-563c-4e92-8cb0-11209afbe911",
+      "name": "ACK Telegram",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -368,
+        2176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nconst cb = body.callback_query;\nif (!cb) {\n  return [{ json: { tipo: 'otro', accion: 'ignorar' } }];\n}\nconst data = cb.data || '';\nconst parts = data.split('|');\nconst es_v2 = parts[0] === 'v2';\nconst accion = es_v2 ? (parts[1]||'') : (parts[0]||'');\nconst tema_id = es_v2 ? (parts.slice(2).join('|')||'') : (parts.slice(1).join('|')||'');\nreturn [{ json: {\n  tipo: 'callback',\n  accion,\n  tema_id,\n  callback_id: cb.id,\n  message_id: cb.message?.message_id,\n  chat_id: cb.message?.chat?.id || 1160149765\n} }];\n"
+      },
+      "id": "7bf41f6b-e524-4e04-b478-319d3700564b",
+      "name": "Parsear Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        2176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7988109123:AAF9YWC7Q3VQ8x_M4p-cBtTzzjRC1GxbtQs/answerCallbackQuery",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "callback_query_id",
+              "value": "={{ $json.callback_id }}"
+            },
+            {
+              "name": "text",
+              "value": "✅"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "31d024b5-ad3e-4c3f-8d3a-98e375abe7a5",
+      "name": "Answer Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        144,
+        2176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7988109123:AAF9YWC7Q3VQ8x_M4p-cBtTzzjRC1GxbtQs/editMessageReplyMarkup",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $('Parsear Callback').first().json.chat_id }}"
+            },
+            {
+              "name": "message_id",
+              "value": "={{ $('Parsear Callback').first().json.message_id }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "{\"inline_keyboard\":[]}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "78526f4c-4a32-4308-8a87-c6d669479654",
+      "name": "Limpiar Botones TG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        2176
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "b83fef91-3964-49ff-bf1a-226444f7091c",
+                    "leftValue": "={{ $('Parsear Callback').first().json.accion }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "aprobar"
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "3ef60045-71ae-4534-8015-33f9402176cb",
+                    "leftValue": "={{ $('Parsear Callback').first().json.accion }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "rechazar"
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "solo-texto-rule-001",
+                    "leftValue": "={{ $('Parsear Callback').first().json.accion }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "solo_texto"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "51970037-0754-4807-8075-8c8469a261bb",
+      "name": "Router Decisión",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        2176
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "93b521a7-81a5-4896-bd0a-6ac758580bcb",
+      "name": "Leer Temas Aprobacion",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        928,
+        2032
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst cb = $('Parsear Callback').first().json;\nconst tema_id = cb.tema_id || '';\nconst todas = $input.all().map(i => i.json);\nconst fila = todas.find(r => String(r.id||'').trim() === String(tema_id).trim());\nif (!fila) throw new Error('No se encontró tema_id=\"'+tema_id+'\" en Temas Sheet');\nif (!fila.post_text) throw new Error('tema_id=\"'+tema_id+'\" no tiene post_text guardado.');\nreturn [{ json: { ...cb, ...fila } }];\n"
+      },
+      "id": "48ff034e-5f2a-4dbd-a167-10ffaa510948",
+      "name": "Encontrar Post Guardado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $json;\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: {\n    'com.linkedin.ugc.ShareContent': {\n      shareCommentary: { text: d.post_text || '' },\n      shareMediaCategory: 'NONE'\n    }\n  },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+      },
+      "id": "80fd7b98-1106-4597-b18d-84feffc1104e",
+      "name": "Preparar LinkedIn Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/v2/ugcPosts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer AQVb_3WZWNHiHMIu0Ut9ipaBzjCgmKw95_aQi2XIPcwFUjhQRTEeYq0vlrL8uGOVylnSCzPzsChQYy0xvzbRIWbdBeBSFqjDpnANIkVc5rZOJzyKbkgb0I2hWTMgbzX2AxOuB6lNhGqIkmF_oLtzKmWxKLniqu7Guuf4MrnU3ueDPp6zQXOLUqxHR8GDoY-kuUvXkFy485849iTl8N5NrBRk0sHbnBbMnpNsuN84juEtlbKL94zdiSk4O_nLcqksgJmGqUNKJdVsH23DLKmuLIFiqoJD5RwIyKbO0wH-IOOCHVOS_6_ovW9te-T9vKdkZiAPPjX40RKiapCjS48CTnu9-byBYQ"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.linkedin_body }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "fd6f3832-3d1b-43d0-8cbf-5639fe694ead",
+      "name": "Publicar LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1712,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst resp = $json;\nconst status = resp.statusCode || resp.status || 200;\nconst post_id = resp.id || resp.headers?.['x-restli-id'] || 'unknown';\nif (status >= 400) throw new Error('LinkedIn error '+status+': '+JSON.stringify(resp).substring(0,300));\nconst prev = $('Preparar LinkedIn Body').first().json;\nreturn [{ json: { ...prev, post_id, linkedin_status: status, publicado_en: new Date().toISOString() } }];\n"
+      },
+      "id": "b77c1ce7-adab-4c73-8ddd-f6bc835b27d1",
+      "name": "Validar LinkedIn",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "estado": "publicado",
+            "fecha_pub": "={{ $now.format('yyyy-MM-dd HH:mm') }}",
+            "post_id": "={{ $json.post_id }}",
+            "veces_publicado": "={{ (parseInt($json.veces_publicado||0)) + 1 }}",
+            "imagen_url": "={{ $json.imagen_url || '' }}",
+            "post_text": "={{ $json.post_text || '' }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "58af9825-8043-4be1-a07e-8b9572ac3b99",
+      "name": "Registrar Publicación",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2224,
+        2032
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "✅ <b>Post publicado en LinkedIn</b>\n\nTema: {{ $json.tema }}\nER esperado: {{ ($json.er_promedio*100).toFixed(2) }}%\nCalidad: {{ $json.calidad_score }}/100",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "fa7eacde-3c98-4d64-9a19-7fb782dac334",
+      "name": "Telegram Publicado ✅",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2480,
+        2032
+      ],
+      "webhookId": "1713a2c1-24cf-49f6-9095-3172b04229cd",
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 148549058,
+          "mode": "list",
+          "cachedResultName": "Rechazos"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tema_id": "={{ $('Parsear Callback').first().json.tema_id }}",
+            "motivo": "rechazado_telegram_v2",
+            "fecha": "={{ $now.format('yyyy-MM-dd HH:mm') }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ca8a90d4-74cc-4cd6-bb13-d6ceb25f9b61",
+      "name": "Guardar Rechazo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        928,
+        2320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "❌ Post rechazado. El tema queda disponible para la próxima generación.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "7a86b05a-d71a-4f7c-8ef3-9848e91058fb",
+      "name": "Telegram Rechazado ❌",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1184,
+        2320
+      ],
+      "webhookId": "b2dcbf9b-5936-4542-bd7d-47f151c06e91",
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger Diario": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Metricas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Rechazos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Manual": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Metricas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Rechazos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas": {
+      "main": [
+        [
+          {
+            "node": "Merge Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Metricas": {
+      "main": [
+        [
+          {
+            "node": "Merge Sheets",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sheets": {
+      "main": [
+        [
+          {
+            "node": "Parsear Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Sheets": {
+      "main": [
+        [
+          {
+            "node": "Calcular Prioridad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Prioridad": {
+      "main": [
+        [
+          {
+            "node": "System Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System Prompt": {
+      "main": [
+        [
+          {
+            "node": "Combinar Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Contexto": {
+      "main": [
+        [
+          {
+            "node": "🔍 Agente Analista",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Agente Analista": {
+      "main": [
+        [
+          {
+            "node": "Parsear Outline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Outline": {
+      "main": [
+        [
+          {
+            "node": "✍️ Agente Escritor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✍️ Agente Escritor": {
+      "main": [
+        [
+          {
+            "node": "Parsear Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Draft": {
+      "main": [
+        [
+          {
+            "node": "Extraer Ejemplos Top ER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Ejemplos Top ER": {
+      "main": [
+        [
+          {
+            "node": "🧹 Agente Humanizador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧹 Agente Humanizador": {
+      "main": [
+        [
+          {
+            "node": "Parsear Post Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Post Final": {
+      "main": [
+        [
+          {
+            "node": "Validar Calidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Calidad": {
+      "main": [
+        [
+          {
+            "node": "¿Pasa Calidad?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Pasa Calidad?": {
+      "main": [
+        [
+          {
+            "node": "Seleccionar Imagen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar Baja Calidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seleccionar Imagen": {
+      "main": [
+        [
+          {
+            "node": "Obtener Unsplash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Unsplash": {
+      "main": [
+        [
+          {
+            "node": "Preparar Imagen Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Imagen Final": {
+      "main": [
+        [
+          {
+            "node": "Preparar Preview TG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Preview TG": {
+      "main": [
+        [
+          {
+            "node": "Enviar Aprobacion TG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Post Pendiente": {
+      "main": [
+        []
+      ]
+    },
+    "Telegram Entry MA": {
+      "main": [
+        [
+          {
+            "node": "ACK Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parsear Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Callback": {
+      "main": [
+        [
+          {
+            "node": "Answer Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Callback": {
+      "main": [
+        [
+          {
+            "node": "Limpiar Botones TG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar Botones TG": {
+      "main": [
+        [
+          {
+            "node": "Router Decisión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Decisión": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Aprobacion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Rechazo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Temas Aprobacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas Aprobacion": {
+      "main": [
+        [
+          {
+            "node": "Encontrar Post Guardado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encontrar Post Guardado": {
+      "main": [
+        [
+          {
+            "node": "Preparar LinkedIn Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar LinkedIn Body": {
+      "main": [
+        [
+          {
+            "node": "Publicar LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Validar LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Registrar Publicación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Publicación": {
+      "main": [
+        [
+          {
+            "node": "Telegram Publicado ✅",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Rechazo": {
+      "main": [
+        [
+          {
+            "node": "Telegram Rechazado ❌",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Rechazos": {
+      "main": [
+        [
+          {
+            "node": "Merge Sheets",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Enviar Aprobacion TG": {
+      "main": [
+        [
+          {
+            "node": "Guardar Post Pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "binaryMode": "separate"
+  },
+  "versionId": "f7d7c72c-9c24-48e8-b454-d7b46887ce4e",
+  "meta": {
+    "instanceId": "fb3c60750005dedb7e8a7a51a7a0e79d0341f231af1bb8c8698be6d6ccb11aee"
+  },
+  "id": "p71hf2LpPVg7vcSO",
+  "tags": []
+}

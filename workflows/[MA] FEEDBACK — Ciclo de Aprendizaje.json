@@ -1,0 +1,484 @@
+{
+  "name": "[MA] FEEDBACK — Ciclo de Aprendizaje",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "003736c5-f796-4981-b9a0-ff7d00053c5e",
+      "name": "Trigger Semanal FEEDBACK",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma-feedback-manual",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "f44c79c6-926f-4afb-9aff-344f3715c608",
+      "name": "Webhook FEEDBACK Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "webhookId": "e5ce34c2-9bdb-4be9-8f65-a13f8d3a3d54"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "ba614eb9-7ecb-4d05-a678-9a20ba22443c",
+      "name": "Leer Temas Feedback",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        -208
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 830260036,
+          "mode": "list",
+          "cachedResultName": "Metricas"
+        },
+        "options": {}
+      },
+      "id": "f73f1a37-2e7e-4fe1-9ba7-cdd8f1f25a31",
+      "name": "Leer Metricas Feedback",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        208
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "f10f0172-755d-402b-85fe-93c8876754d5",
+      "name": "Merge Temas + Metricas",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        528,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Separar Temas y Métricas del Merge\nconst all = $input.all().map(i => i.json);\nconst temas    = all.filter(i => i.id && i.tema && !('engagement_rate' in i && 'post_id' in i));\nconst metricas = all.filter(i => i.post_id && ('engagement_rate' in i || 'likes' in i));\n\nif (!metricas.length) {\n  return [{ json: {\n    texto_correlaciones: 'Sin datos de métricas históricos disponibles.',\n    temas_pendientes: temas.filter(t => t.estado !== 'publicado').length,\n    areas_res: [], tonos_res: [], tipos_res: [],\n    er_global_avg: 0, er_mediana: 0,\n    outliers_pos: [], outliers_neg: []\n  }}];\n}\n\n// ── Correlaciones por dimensión ──\nfunction calcResumen(map) {\n  return Object.entries(map)\n    .filter(([, ers]) => ers.length >= 1)\n    .map(([key, ers]) => {\n      const sorted = [...ers].sort((a, b) => a - b);\n      const avg    = ers.reduce((a, b) => a + b, 0) / ers.length;\n      const median = sorted[Math.floor(sorted.length / 2)];\n      return { key, avg, median, count: ers.length, best: sorted[sorted.length - 1] };\n    })\n    .sort((a, b) => b.avg - a.avg);\n}\n\nconst byArea = {}, byTono = {}, byTipo = {};\nmetricas.forEach(m => {\n  const er = parseFloat(m.engagement_rate) || 0;\n  // Only include posts with real data (er > 0)\n  const area = (m.area || 'sin_area').toLowerCase();\n  const tono = (m.tono || 'sin_tono').toLowerCase();\n  const tipo = (m.tipo_post || 'sin_tipo').toLowerCase();\n  if (!byArea[area]) byArea[area] = [];\n  if (!byTono[tono]) byTono[tono] = [];\n  if (!byTipo[tipo]) byTipo[tipo] = [];\n  byArea[area].push(er);\n  byTono[tono].push(er);\n  byTipo[tipo].push(er);\n});\n\nconst areas_res = calcResumen(byArea);\nconst tonos_res = calcResumen(byTono);\nconst tipos_res = calcResumen(byTipo);\n\n// Global stats\nconst all_ers = metricas\n  .map(m => parseFloat(m.engagement_rate) || 0)\n  .filter(e => e > 0)\n  .sort((a, b) => a - b);\n\nconst er_global_avg = all_ers.length\n  ? all_ers.reduce((a, b) => a + b, 0) / all_ers.length\n  : 0;\nconst er_mediana = all_ers.length ? all_ers[Math.floor(all_ers.length / 2)] : 0;\n\n// Outliers\nconst outliers_pos = metricas\n  .filter(m => parseFloat(m.engagement_rate) > er_mediana * 2 && er_mediana > 0)\n  .sort((a, b) => parseFloat(b.engagement_rate) - parseFloat(a.engagement_rate))\n  .slice(0, 5)\n  .map(m => ({\n    tema:            m.tema || m.area,\n    area:            m.area,\n    tono:            m.tono,\n    tipo:            m.tipo_post,\n    fecha:           m.fecha,\n    er:              parseFloat(m.engagement_rate),\n    ratio_mediana:   +(parseFloat(m.engagement_rate) / (er_mediana || 1)).toFixed(2)\n  }));\n\nconst outliers_neg = metricas\n  .filter(m => {\n    const er = parseFloat(m.engagement_rate);\n    return er > 0 && er < er_mediana * 0.35 && er_mediana > 0;\n  })\n  .slice(0, 3)\n  .map(m => ({ tema: m.tema || m.area, area: m.area, er: parseFloat(m.engagement_rate) }));\n\n// Build analysis text for Qwen\nconst fmt = (r) => `  ${r.key}: ER avg ${(r.avg * 100).toFixed(2)}%, mediana ${(r.median * 100).toFixed(2)}% (${r.count} posts)`;\n\nconst temas_pendientes = temas\n  .filter(t => t.estado !== 'publicado')\n  .slice(0, 12)\n  .map(t => `  [${t.area || '?'}] ${t.tema || ''} | tono: ${t.tono || '?'} | score: ${t.score || '?'}`);\n\nconst texto_correlaciones = [\n  `ANÁLISIS CORRELACIONES — ${metricas.length} posts | ${temas.length} temas`,\n  `ER global: avg ${(er_global_avg * 100).toFixed(2)}%, mediana ${(er_mediana * 100).toFixed(2)}%`,\n  ``,\n  `RENDIMIENTO POR ÁREA (${areas_res.length} áreas):`,\n  ...areas_res.slice(0, 8).map(fmt),\n  ``,\n  `RENDIMIENTO POR TONO (${tonos_res.length} tonos):`,\n  ...tonos_res.slice(0, 6).map(fmt),\n  ``,\n  `RENDIMIENTO POR TIPO DE POST:`,\n  ...tipos_res.slice(0, 5).map(fmt),\n  ``,\n  ...(outliers_pos.length > 0 ? [\n    `POSTS ESTRELLA (ER > 2x mediana):`,\n    ...outliers_pos.map(p => `  ★ ${p.tema} [${p.area}/${p.tono}]: ER ${(p.er * 100).toFixed(2)}% = ${p.ratio_mediana}x mediana`),\n    ``\n  ] : []),\n  ...(outliers_neg.length > 0 ? [\n    `POSTS CON BAJO RENDIMIENTO:`,\n    ...outliers_neg.map(p => `  ↓ ${p.tema} [${p.area}]: ER ${(p.er * 100).toFixed(2)}%`),\n    ``\n  ] : []),\n  `TEMAS PENDIENTES EN PIPELINE:`,\n  ...temas_pendientes,\n].join('\\n');\n\nreturn [{\n  json: {\n    texto_correlaciones:    texto_correlaciones.substring(0, 10000),\n    areas_res,\n    tonos_res,\n    tipos_res,\n    er_global_avg,\n    er_mediana,\n    outliers_pos,\n    outliers_neg,\n    temas_pendientes_count: temas.filter(t => t.estado !== 'publicado').length,\n    total_metricas:         metricas.length\n  }\n}];\n"
+      },
+      "id": "0124806a-28a2-4536-8115-4ad242902909",
+      "name": "Calcular Correlaciones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen2.5:32b",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un agente de feedback para una estrategia de contenido en LinkedIn. Analiza las correlaciones de rendimiento y genera recomendaciones.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"ajustes\": {\n    \"areas_boost\": [\"áreas con mejor rendimiento para potenciar\"],\n    \"areas_penalizar\": [\"áreas con bajo rendimiento para reducir\"],\n    \"tonos_boost\": [\"tonos que mejor funcionan\"]\n  },\n  \"conclusiones\": {\n    \"area_estrella\": \"área con mejor ER\",\n    \"tono_ganador\": \"tono más efectivo\",\n    \"dia_optimo\": \"día de la semana con mejor rendimiento\",\n    \"patron_principal\": \"descripción del patrón principal detectado\"\n  },\n  \"proximas_semanas\": {\n    \"enfoque\": \"recomendación de enfoque\",\n    \"evitar\": \"qué evitar\"\n  },\n  \"alerta\": \"alerta importante si la hay, o cadena vacía\"\n}\n\nNo incluyas texto fuera del JSON.",
+              "role": "system"
+            },
+            {
+              "content": "=Analiza estas correlaciones de rendimiento y genera recomendaciones:\n\n{{ $json.texto_correlaciones }}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "dc24d5d6-3112-4b2d-9074-37355e271c40",
+      "name": "🔄 Agente FEEDBACK Qwen",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.7,
+      "position": [
+        1040,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "S4LeOiFztrgDaMM9",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) {\n  return [{ json: { ...$('Calcular Correlaciones').first().json, recom: null } }];\n}\nlet s = raw.trim().replace(/```json\\s*/gi, '').replace(/```/g, '').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet recom;\ntry { recom = JSON.parse(s); }\ncatch(e) { const m = s.match(/\\{[\\s\\S]*\\}/); recom = m ? JSON.parse(m[0]) : null; }\nconst prev = $('Calcular Correlaciones').first().json;\nreturn [{ json: { ...prev, recom } }];\n"
+      },
+      "id": "3860f5e2-5769-4dad-ab44-edbff251d286",
+      "name": "Parsear Recomendaciones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "67cbc2c5-2c98-4a3b-858b-5a8b592af76d",
+      "name": "Leer Temas Scores",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1312,
+        304
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data        = $json;\nconst recom       = data.recom || {};\nconst areas_res   = data.areas_res || [];\nconst tonos_res   = data.tonos_res || [];\nconst er_mediana  = data.er_mediana || 0;\nconst temas_sheet = $('Leer Temas Scores').all().map(i => i.json);\n\n// Map de boost por área (normalizado 0.7 → 1.5)\nconst erPorArea = {};\nareas_res.forEach(r => { erPorArea[r.key] = r.avg; });\nconst er_vals = areas_res.map(r => r.avg);\nconst er_max  = er_vals.length ? Math.max(...er_vals) : 1;\nconst er_min  = er_vals.length ? Math.min(...er_vals) : 0;\nconst rango   = er_max - er_min || 0.001;\n\nfunction areaBoost(area) {\n  const er = erPorArea[(area || '').toLowerCase()];\n  if (er === undefined) return 1.0;\n  return 0.7 + ((er - er_min) / rango) * 0.8;\n}\n\n// Areas/tonos que Qwen recomienda potenciar\nconst areas_boost = (recom?.ajustes?.areas_boost || []).map(a => a.toLowerCase());\nconst areas_pen   = (recom?.ajustes?.areas_penalizar || []).map(a => a.toLowerCase());\nconst tonos_boost = (recom?.ajustes?.tonos_boost || []).map(t => t.toLowerCase());\n\nreturn temas_sheet\n  .filter(t => t.id && t.estado !== 'publicado')\n  .map(t => {\n    const area  = (t.area  || '').toLowerCase();\n    const tono  = (t.tono  || '').toLowerCase();\n    let score   = parseFloat(t.score || '1.0');\n\n    // Apply area performance factor\n    score *= areaBoost(area);\n\n    // Apply Qwen recommendations\n    if (areas_boost.includes(area)) score *= 1.3;\n    if (areas_pen.includes(area))   score *= 0.7;\n    if (tonos_boost.includes(tono)) score *= 1.15;\n\n    score = Math.min(Math.max(score, 0.2), 3.0);\n    return { json: { id: t.id, score: score.toFixed(2) } };\n  });\n"
+      },
+      "id": "eaa02078-1cd4-4aaf-845c-ddd5e09a46ed",
+      "name": "Calcular Nuevos Scores",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "score": "={{ $json.score }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "8f30b34c-eb5e-4e70-ab1d-cbef23bafd3c",
+      "name": "Update Scores FEEDBACK",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1824,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data    = $json;\nconst recom   = data.recom || {};\nconst areas   = (data.areas_res || []).slice(0, 5);\nconst tonos   = (data.tonos_res || []).slice(0, 4);\nconst out_pos = (data.outliers_pos || []).slice(0, 3);\nconst total   = data.total_metricas || 0;\nconst pendientes = data.temas_pendientes_count || 0;\n\nconst conclusion = recom?.conclusiones || {};\nconst proximas   = recom?.proximas_semanas || {};\nconst alerta     = recom?.alerta || '';\n\nconst areas_html = areas.map(r =>\n  `  • <b>${r.key}</b>: ER avg ${(r.avg * 100).toFixed(2)}%, mediana ${(r.median * 100).toFixed(2)}% (${r.count} posts)`\n).join('\\n');\n\nconst tonos_html = tonos.map(r =>\n  `  • ${r.key}: ${(r.avg * 100).toFixed(2)}% avg (${r.count} posts)`\n).join('\\n');\n\nconst out_html = out_pos.length\n  ? out_pos.map(p => `  🌟 ${p.tema} [${p.area}/${p.tono}]: ${(p.er * 100).toFixed(2)}% ER`).join('\\n')\n  : '  (ninguno con datos suficientes)';\n\nconst msg = [\n  `🔄 <b>[FEEDBACK] Ciclo de Aprendizaje Semanal</b>`,\n  ``,\n  `Posts analizados: ${total} | Temas pendientes: ${pendientes}`,\n  ``,\n  `<b>Rendimiento por área:</b>`,\n  areas_html || '  (sin datos)',\n  ``,\n  `<b>Rendimiento por tono:</b>`,\n  tonos_html || '  (sin datos)',\n  ``,\n  `<b>Posts estrella de la semana:</b>`,\n  out_html,\n  ``,\n  ...(conclusion.area_estrella ? [\n    `<b>Área estrella:</b> ${conclusion.area_estrella}`,\n    `<b>Tono ganador:</b> ${conclusion.tono_ganador || '?'}`,\n    `<b>Día óptimo:</b> ${conclusion.dia_optimo || '?'}`,\n    ``,\n    `<b>Patrón principal:</b>`,\n    conclusion.patron_principal || '...',\n    ``\n  ] : []),\n  ...(proximas.enfoque ? [\n    `<b>Enfoque próxima semana:</b> ${proximas.enfoque}`,\n    ...(proximas.evitar ? [`<b>Evitar:</b> ${proximas.evitar}`] : []),\n    ``\n  ] : []),\n  ...(alerta ? [`⚠️ <b>Alerta:</b> ${alerta}`, ``] : []),\n  `Scores actualizados en Sheet ✅`\n].join('\\n');\n\nreturn [{ json: { mensaje: msg, recom, areas_res: areas, tonos_res: tonos } }];\n"
+      },
+      "id": "c2512ff5-4738-4bff-8db3-a6db1834e5bd",
+      "name": "Preparar Informe Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "2878359a-33ef-4e83-93b6-393566b4d6c5",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2352,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "={{ $json.mensaje }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "bf047f96-5710-4e8b-b5ad-2c765d24c9c3",
+      "name": "Telegram Informe Semanal 🔄",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2352,
+        208
+      ],
+      "webhookId": "2b8ab815-32f9-4c37-86c7-3a7275bf69cd",
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger Semanal FEEDBACK": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Feedback",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Metricas Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook FEEDBACK Manual": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Feedback",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Metricas Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas Feedback": {
+      "main": [
+        [
+          {
+            "node": "Merge Temas + Metricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Metricas Feedback": {
+      "main": [
+        [
+          {
+            "node": "Merge Temas + Metricas",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Temas + Metricas": {
+      "main": [
+        [
+          {
+            "node": "Calcular Correlaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Correlaciones": {
+      "main": [
+        [
+          {
+            "node": "🔄 Agente FEEDBACK Qwen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Agente FEEDBACK Qwen": {
+      "main": [
+        [
+          {
+            "node": "Parsear Recomendaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Recomendaciones": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas Scores": {
+      "main": [
+        [
+          {
+            "node": "Calcular Nuevos Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Nuevos Scores": {
+      "main": [
+        [
+          {
+            "node": "Update Scores FEEDBACK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Scores FEEDBACK": {
+      "main": [
+        [
+          {
+            "node": "Preparar Informe Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Informe Feedback": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram Informe Semanal 🔄",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "f88804c5-08d9-4567-adf9-4eceba4cdc47",
+  "meta": {
+    "instanceId": "fb3c60750005dedb7e8a7a51a7a0e79d0341f231af1bb8c8698be6d6ccb11aee"
+  },
+  "id": "6kNsqFSBI5DpCrW1",
+  "tags": []
+}

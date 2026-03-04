@@ -1,0 +1,528 @@
+{
+  "name": "[MA] SCOUT — Descubridor de Temas",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "d3d0b3f0-39d5-48ed-960b-ba76e5531af1",
+      "name": "Trigger Scout Diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma-scout-manual",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ccb48c4a-48f1-41af-979b-1bd6cc448824",
+      "name": "Webhook Scout Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "webhookId": "170053b1-c061-43d9-9dbc-e9804b0ed960"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Fuentes RSS gratuitas de diseño, educación y comunicación\n// Seleccionadas para la audiencia de Camilo: creativos, directores, fundadores en Colombia/Latam\nconst fuentes = [\n  { url: \"https://uxdesign.cc/feed\",                    area: \"diseño\",        nombre: \"UX Design CC\" },\n  { url: \"https://www.fastcompany.com/section/design/rss\", area: \"diseño\",     nombre: \"Fast Company Design\" },\n  { url: \"https://medium.com/feed/tag/design-thinking\",  area: \"diseño\",       nombre: \"Medium Design Thinking\" },\n  { url: \"https://hbr.org/resources/rss/articles\",       area: \"liderazgo\",    nombre: \"Harvard Business Review\" },\n  { url: \"https://ideo.com/journal.rss\",                 area: \"innovación\",   nombre: \"IDEO Journal\" },\n  { url: \"https://medium.com/feed/tag/design-education\", area: \"educación\",    nombre: \"Medium Design Education\" }\n];\nreturn fuentes.map(f => ({ json: f }));\n"
+      },
+      "id": "52d321fa-23b4-4465-9923-4136dd749ed2",
+      "name": "Definir Fuentes RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "b95c322c-ccc0-412b-b962-636dcfa27740",
+      "name": "Fetch RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// En N8N, HTTP Request con responseFormat:text devuelve el body en $json.data\nconst items = $input.all();\nconst ahora = Date.now();\nconst limite48h = ahora - (48 * 60 * 60 * 1000);\nlet articulos = [];\n\nfor (const item of items) {\n  const meta = item.json;\n  // HTTP Request con responseFormat:text almacena en $json.data o $json directamente como string\n  const body = (typeof meta === 'string') ? meta :\n               (meta.data && typeof meta.data === 'string') ? meta.data :\n               (meta.body && typeof meta.body === 'string') ? meta.body : '';\n  \n  // Recuperar metadatos del item original (area, nombre, url)\n  // Nota: cuando HTTP responde, los datos del input ($json antes del HTTP) se preservan en N8N v1\n  const area    = meta.area || 'diseño';\n  const nombre  = meta.nombre || meta.fuente || 'RSS';\n\n  if (!body || body.length < 100) continue;\n\n  // Extraer items del RSS/Atom con regex robusto\n  const itemRegex = /<item[^>]*>([\\s\\S]*?)<\\/item>|<entry[^>]*>([\\s\\S]*?)<\\/entry>/gi;\n  let match;\n  while ((match = itemRegex.exec(body)) !== null) {\n    const bloque = match[1] || match[2] || '';\n\n    // Título (con CDATA)\n    const titleM = bloque.match(/<title[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/title>/i);\n    const titulo = titleM ? titleM[1].trim().replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').substring(0,150) : '';\n\n    // URL del artículo\n    const linkM = bloque.match(/<link[^>]*href=[\"'](https?[^\"']+)[\"']|<link[^>]*>(https?[^\\s<]+)<\\/link>|<link>(https?[^\\s<]+)<\\/link>/i);\n    const link = linkM ? (linkM[1]||linkM[2]||linkM[3]||'').trim() : '';\n\n    // Fecha de publicación\n    const fechaM = bloque.match(/<pubDate[^>]*>([\\s\\S]*?)<\\/pubDate>|<published[^>]*>([\\s\\S]*?)<\\/published>|<updated[^>]*>([\\s\\S]*?)<\\/updated>/i);\n    const fechaStr = fechaM ? (fechaM[1]||fechaM[2]||fechaM[3]||'').trim() : '';\n    const fechaMs = fechaStr ? new Date(fechaStr).getTime() : 0;\n\n    // Descripción/resumen\n    const descM = bloque.match(/<description[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/description>|<summary[^>]*>([\\s\\S]*?)<\\/summary>/i);\n    const desc = descM ? (descM[1]||descM[2]||'').replace(/<[^>]+>/g,'').trim().substring(0,250) : '';\n\n    if (!titulo || titulo.length < 5) continue;\n    if (link && !link.startsWith('http')) continue;\n    // Filtro de fecha: incluir si es reciente o sin fecha\n    if (fechaMs > 0 && fechaMs < limite48h) continue;\n\n    articulos.push({ titulo, link: link||'', fecha: fechaStr, descripcion: desc, area, fuente: nombre });\n  }\n}\n\n// Deduplicar por link\nconst seen = new Set();\narticulos = articulos.filter(a => {\n  if (!a.link || seen.has(a.link)) return false;\n  seen.add(a.link);\n  return true;\n});\n\n// Ordenar por fecha más reciente, tomar top 8\narticulos.sort((a, b) => {\n  const fa = a.fecha ? new Date(a.fecha).getTime() : 0;\n  const fb = b.fecha ? new Date(b.fecha).getTime() : 0;\n  return fb - fa;\n});\n\nif (articulos.length === 0) {\n  // Si no hay artículos, crear uno de fallback para no romper el flujo\n  return [{ json: {\n    titulo: 'Sin artículos recientes en RSS feeds',\n    link: 'https://uxdesign.cc',\n    descripcion: 'No se encontraron artículos en las últimas 48h. Usar temas manuales del Sheet.',\n    area: 'diseño',\n    fuente: 'Fallback'\n  }}];\n}\n\nreturn articulos.slice(0, 8).map(a => ({ json: a }));\n"
+      },
+      "id": "079e6ded-e5b3-4150-8228-de94308f0d85",
+      "name": "Parsear Artículos RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Preparar URL de Jina Reader para cada artículo\nconst art = $json;\nconst jina_url = 'https://r.jina.ai/' + encodeURI(art.link || '');\nreturn [{ json: { ...art, jina_url } }];\n"
+      },
+      "id": "f6c8a7bb-a6ff-4e91-8c36-82f74670bc5f",
+      "name": "Preparar URLs Jina",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.jina_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "text/plain"
+            },
+            {
+              "name": "X-Return-Format",
+              "value": "text"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "a04fcf2b-4c82-423e-84e7-64d86e77b079",
+      "name": "Jina Reader",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nlet combinado = '';\nconst articulos_meta = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i].json;\n  // Jina con responseFormat:text devuelve texto limpio en $json.data o directamente como string\n  const texto = (typeof item === 'string') ? item :\n                (typeof item.data === 'string') ? item.data :\n                (typeof item.body === 'string') ? item.body :\n                String(item.data || item.body || item.content || '');\n  \n  const texto_limpio = texto.trim().substring(0, 2000);\n  if (!texto_limpio || texto_limpio.length < 50) continue;\n  \n  // Recuperar metadatos (titulo, area, fuente vienen del nodo anterior \"Preparar URLs Jina\")\n  const titulo = item.titulo || `Artículo ${i+1}`;\n  const fuente = item.fuente || 'RSS';\n  \n  combinado += `\\n\\n=== ${titulo} (${fuente}) ===\\n${texto_limpio}`;\n  articulos_meta.push({ titulo, link: item.link, area: item.area, fuente });\n}\n\nif (!combinado.trim()) {\n  // Fallback: usar títulos + descripciones del paso anterior\n  const titulos = items.map(i => `- ${i.json.titulo||'?'}: ${i.json.descripcion||''}`).join('\\n');\n  combinado = 'Resumen de artículos (sin texto completo):\\n' + titulos;\n  if (!combinado.trim()) throw new Error('Sin contenido para analizar');\n}\n\nreturn [{ json: {\n  texto_combinado: combinado.substring(0, 12000),\n  articulos_meta\n} }];\n"
+      },
+      "id": "00486079-afa8-44c8-b915-bc2619538417",
+      "name": "Combinar Artículos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen2.5:32b",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un agente scout de contenido para LinkedIn. Tu objetivo es analizar artículos y proponer temas relevantes para posts de LinkedIn de Camilo Ayala, un comunicador y diseñador estratégico colombiano.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"temas_propuestos\": [\n    {\n      \"tema_nombre\": \"nombre del tema\",\n      \"area\": \"diseño|educación|liderazgo|innovación|comunicación\",\n      \"tipo_post\": \"reflexión|caso|herramienta|provocación|tutorial\",\n      \"nivel_profundidad\": \"básico|intermedio|avanzado\",\n      \"tono\": \"directo|reflexivo|provocador|analítico\",\n      \"objetivo\": \"posicionamiento|engagement|educación|debate\",\n      \"score\": \"1.0-2.0\",\n      \"fuente_scout\": \"nombre de la fuente original\"\n    }\n  ]\n}\n\nExtrae 3-5 temas que sean relevantes para profesionales creativos en Latinoamérica. No incluyas texto fuera del JSON.",
+              "role": "system"
+            },
+            {
+              "content": "=Analiza los siguientes artículos y extrae temas para posts de LinkedIn:\n\n{{ $json.texto_combinado }}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        },
+        "simplifyOutput": true
+      },
+      "id": "57070509-e726-47ee-942c-5d6ade553564",
+      "name": "🔍 Agente Scout Qwen",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.7,
+      "position": [
+        1824,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "S4LeOiFztrgDaMM9",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Scout Qwen no devolvió contenido');\n\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\n\n// Eliminar TODOS los bloques <think>...</think> (incluyendo sin cierre)\ns = s.replace(/<think>[\\s\\S]*?<\\/think>/gi, '').trim();\n// Si quedó un <think> sin cierre, tomar solo lo que está después\nconst tmOpen = s.lastIndexOf('<think>');\nconst tmClose = s.lastIndexOf('</think>');\nif (tmOpen > tmClose) {\n  // <think> abierto sin cerrar — buscar el JSON después\n  const afterThink = s.substring(tmOpen);\n  const jsonStart = afterThink.search(/[\\[{]/);\n  if (jsonStart > -1) s = afterThink.substring(jsonStart);\n}\n// Fallback: si hay </think> suelto, tomar lo de después\nconst tmFallback = s.match(/<\\/think>\\s*([\\s\\S]*)/);\nif (tmFallback) s = tmFallback[1].trim();\n\nlet resultado;\ntry { resultado = JSON.parse(s); }\ncatch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/);\n  if (!m) throw new Error('Sin JSON en Scout: ' + s.substring(0, 300));\n  resultado = JSON.parse(m[0]);\n}\n\nconst temas = resultado.temas_propuestos || resultado.temas || [];\nif (!temas.length) throw new Error('Scout no extrajo temas: ' + s.substring(0, 300));\n\nreturn temas.map(t => ({ json: t }));\n"
+      },
+      "id": "bb1e471b-5b74-4c52-98a2-7b92b2f4ad97",
+      "name": "Parsear Temas Scout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "options": {}
+      },
+      "id": "75837f3c-9dad-465b-9380-6fd7cb938fe7",
+      "name": "Leer Temas Existentes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2080,
+        304
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Filtrar temas que ya existen en el Sheet para evitar duplicados\nconst temas_propuestos = $('Parsear Temas Scout').all().map(i => i.json);\nconst temas_existentes = $('Leer Temas Existentes').all().map(i => (i.json.tema||i.json.tema_nombre||'').toLowerCase().trim());\n\nconst temas_nuevos = temas_propuestos.filter(t => {\n  const nombre = (t.tema_nombre || t.tema || '').toLowerCase().trim();\n  if (!nombre) return false;\n  // Verificar similitud básica (no exacta) para evitar duplicados semánticos\n  return !temas_existentes.some(ex => {\n    if (!ex) return false;\n    // Dividir en palabras clave y ver si hay mucho solapamiento\n    const palabras_nuevo = nombre.split(/\\s+/).filter(p => p.length > 4);\n    const solapamiento = palabras_nuevo.filter(p => ex.includes(p)).length;\n    return solapamiento >= 2; // Si 2+ palabras clave coinciden, considerarlo duplicado\n  });\n});\n\nif (temas_nuevos.length === 0) {\n  return [{ json: { _sin_temas_nuevos: true, mensaje: 'Todos los temas propuestos ya existen en el Sheet' } }];\n}\n\nreturn temas_nuevos.map(t => ({ json: t }));\n"
+      },
+      "id": "f3acc34d-9fa0-4251-8eae-da43ecb97393",
+      "name": "Filtrar Temas Nuevos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Preparar fila para Google Sheets\nconst t = $json;\nif (t._sin_temas_nuevos) return []; // Nada que agregar\n\nconst id = 'SCOUT-' + Date.now() + '-' + Math.random().toString(36).substring(2,6).toUpperCase();\nreturn [{ json: {\n  id,\n  tema:              t.tema_nombre || t.tema || '',\n  tema_nombre:       t.tema_nombre || t.tema || '',\n  area:              t.area || 'diseño',\n  tipo_post:         t.tipo_post || 'reflexión',\n  nivel_profundidad: t.nivel_profundidad || 'avanzado',\n  tono:              t.tono || 'directo',\n  objetivo:          t.objetivo || 'posicionamiento',\n  score:             t.score || '1.2',\n  estado:            'disponible',\n  fuente_scout:      t.fuente_scout || 'Scout Automático',\n  fecha_scout:       new Date().toISOString().substring(0,10)\n} }];\n"
+      },
+      "id": "349b50aa-2d60-4551-a7a1-101f29981f9a",
+      "name": "Preparar para Sheet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2608,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1090471100,
+          "mode": "list",
+          "cachedResultName": "Temas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "tema": "={{ $json.tema }}",
+            "tema_nombre": "={{ $json.tema_nombre }}",
+            "area": "={{ $json.area }}",
+            "tipo_post": "={{ $json.tipo_post }}",
+            "nivel_profundidad": "={{ $json.nivel_profundidad }}",
+            "tono": "={{ $json.tono }}",
+            "objetivo": "={{ $json.objetivo }}",
+            "score": "={{ $json.score }}",
+            "estado": "={{ $json.estado }}",
+            "fuente_scout": "={{ $json.fuente_scout }}",
+            "fecha_scout": "={{ $json.fecha_scout }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "f909ff59-65f9-4191-9fff-0020c9bd44a5",
+      "name": "Guardar Temas Scout",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2864,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nconst temas_guardados = items.filter(i => !i.json._sin_temas_nuevos && i.json.tema_nombre);\nconst sin_nuevos = items.some(i => i.json._sin_temas_nuevos);\n\nif (sin_nuevos || temas_guardados.length === 0) {\n  return [{ json: {\n    mensaje: '🤖 <b>[SCOUT] Sin temas nuevos</b>\\n\\nTodos los temas del día ya existen en el Sheet.'\n  } }];\n}\n\nconst lista = temas_guardados.slice(0,5).map((i,idx) => {\n  const t = i.json;\n  return `${idx+1}. <b>${(t.tema_nombre||'').substring(0,60)}</b> [${t.area}]`;\n}).join('\\n');\n\nreturn [{ json: {\n  mensaje: `🔍 <b>[SCOUT] ${temas_guardados.length} temas nuevos descubiertos</b>\\n\\n${lista}\\n\\nAgregados al Sheet Temas como \"disponible\".`\n} }];\n"
+      },
+      "id": "aa89b826-4c0e-4e30-86ca-0146e091ba22",
+      "name": "Preparar Notificación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "={{ $json.mensaje }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "1d7abed9-de15-455e-8000-83bd70a6b633",
+      "name": "Telegram Scout ✅",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3392,
+        0
+      ],
+      "webhookId": "5f71dc72-2cf1-4748-a9a3-994ce22597d5",
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger Scout Diario": {
+      "main": [
+        [
+          {
+            "node": "Definir Fuentes RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Scout Manual": {
+      "main": [
+        [
+          {
+            "node": "Definir Fuentes RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Definir Fuentes RSS": {
+      "main": [
+        [
+          {
+            "node": "Fetch RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch RSS": {
+      "main": [
+        [
+          {
+            "node": "Parsear Artículos RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Artículos RSS": {
+      "main": [
+        [
+          {
+            "node": "Preparar URLs Jina",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar URLs Jina": {
+      "main": [
+        [
+          {
+            "node": "Jina Reader",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jina Reader": {
+      "main": [
+        [
+          {
+            "node": "Combinar Artículos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Artículos": {
+      "main": [
+        [
+          {
+            "node": "🔍 Agente Scout Qwen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Agente Scout Qwen": {
+      "main": [
+        [
+          {
+            "node": "Parsear Temas Scout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Temas Scout": {
+      "main": [
+        [
+          {
+            "node": "Leer Temas Existentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Temas Nuevos": {
+      "main": [
+        [
+          {
+            "node": "Preparar para Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar para Sheet": {
+      "main": [
+        [
+          {
+            "node": "Guardar Temas Scout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Temas Scout": {
+      "main": [
+        [
+          {
+            "node": "Preparar Notificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Notificación": {
+      "main": [
+        [
+          {
+            "node": "Telegram Scout ✅",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Temas Existentes": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Temas Nuevos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "f438318f-8b83-477d-b25b-7f83e1890003",
+  "meta": {
+    "instanceId": "fb3c60750005dedb7e8a7a51a7a0e79d0341f231af1bb8c8698be6d6ccb11aee"
+  },
+  "id": "dZCRLig1Ka4Rehei",
+  "tags": []
+}
