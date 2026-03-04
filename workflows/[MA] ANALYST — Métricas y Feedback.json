@@ -264,7 +264,8 @@
               "role": "system"
             },
             {
-              "content": "=Analiza estas métricas de rendimiento de posts de LinkedIn y genera insights:\n\n{{ $json.texto_analisis }}"
+              "content": "=Analiza estas métricas de rendimiento de posts de LinkedIn y genera insights:\n\n{{ $json.texto_analisis }}",
+              "role": "user"
             }
           ]
         },
