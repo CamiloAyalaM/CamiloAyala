@@ -150,7 +150,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// Procesar métricas: combina respuesta LinkedIn API + datos históricos del Sheet\nconst li_resp   = $json;\nconst posts_meta = $('Filtrar Posts a Actualizar').first().json.posts || [];\n// Historical metrics from the Metricas sheet (run in parallel from trigger)\nconst metricas_hist = $('Leer Metricas Sheet').all().map(i => i.json);\n\n// Build historical map: post_id → last known engagement\nconst histMap = {};\nmetricas_hist.forEach(m => {\n  if (!m.post_id) return;\n  const er = parseFloat(m.engagement_rate) || 0;\n  if (!histMap[m.post_id] || er > (histMap[m.post_id].engagement_rate || 0)) {\n    histMap[m.post_id] = {\n      likes:           parseInt(m.likes)    || 0,\n      comments:        parseInt(m.comments) || 0,\n      reposts:         parseInt(m.reposts)  || 0,\n      views:           parseInt(m.views)    || 0,\n      engagement_rate: er\n    };\n  }\n});\n\n// Build map from LinkedIn API response\nconst liMap = {};\nconst li_elements = li_resp.elements || li_resp.data?.elements || [];\nli_elements.forEach(elem => {\n  if (!elem.id) return;\n  liMap[elem.id] = {\n    likes:    elem.likesSummary?.aggregatedCounts?.numLikes    || 0,\n    comments: elem.commentsSummary?.aggregatedCounts?.numComments || 0,\n    reposts:  elem.totalShareStatistics?.shareCount             || 0,\n    views:    elem.totalShareStatistics?.impressionCount        || 0,\n  };\n});\n\nconst CONNECTIONS = 5065;\n\nconst metricas = posts_meta.map(post => {\n  const pid = post.post_id;\n  const li  = liMap[pid] || {};\n  const hist= histMap[pid] || {};\n\n  // LinkedIn API data has priority; fallback to historical sheet data\n  const likes    = li.likes    > 0 ? li.likes    : (hist.likes    || 0);\n  const comments = li.comments > 0 ? li.comments : (hist.comments || 0);\n  const reposts  = li.reposts  > 0 ? li.reposts  : (hist.reposts  || 0);\n  const views    = li.views    > 0 ? li.views    : (hist.views    || 0);\n\n  const er_num = views > 0\n    ? (likes + comments * 2 + reposts * 3) / views\n    : (likes + comments * 2 + reposts * 3) / CONNECTIONS;\n\n  const fuente = li.likes > 0 || li.comments > 0\n    ? 'linkedin_api'\n    : hist.engagement_rate > 0 ? 'sheet_historico' : 'sin_datos';\n\n  return {\n    post_id:         pid,\n    area:            post.area       || 'general',\n    tema:            post.tema_nombre || post.tema || '',\n    tipo_post:       post.tipo_post  || '',\n    tono:            post.tono       || '',\n    fecha:           post.fecha_pub  || '',\n    likes, comments, reposts, views,\n    engagement_rate: Math.round(er_num * 10000) / 10000,\n    er_percent:      (er_num * 100).toFixed(3) + '%',\n    fuente_stats:    fuente\n  };\n});\n\nif (!metricas.length) {\n  return [{ json: { _sin_metricas: true, mensaje: 'No hay posts para procesar métricas' } }];\n}\n\n// Resumen por área\nconst erPorArea = {};\nmetricas.forEach(m => {\n  const a = m.area || 'general';\n  if (!erPorArea[a]) erPorArea[a] = { sum: 0, count: 0 };\n  erPorArea[a].sum += m.engagement_rate;\n  erPorArea[a].count++;\n});\n\nconst resumen_areas = Object.entries(erPorArea)\n  .map(([area, d]) => ({\n    area,\n    er_promedio:  (d.sum / d.count).toFixed(4),\n    posts_count:  d.count\n  }))\n  .sort((a, b) => parseFloat(b.er_promedio) - parseFloat(a.er_promedio));\n\nreturn [{ json: { metricas, resumen_areas, total_posts: metricas.length, li_posts_en_api: li_elements.length } }];\n"
+        "jsCode": "\n// Procesar métricas: combina respuesta LinkedIn API + datos históricos del Sheet\nconst li_resp   = $json;\nconst posts_meta = $('Filtrar Posts a Actualizar').first().json.posts || [];\n// Historical metrics from the Metricas sheet (run in parallel from trigger)\nconst metricas_hist = $('Leer Metricas Sheet').all().map(i => i.json);\n\n// Build historical map: post_id → last known engagement\nconst histMap = {};\nmetricas_hist.forEach(m => {\n  if (!m.post_id) return;\n  const er = parseFloat(m.engagement_rate) || 0;\n  if (!histMap[m.post_id] || er > (histMap[m.post_id].engagement_rate || 0)) {\n    histMap[m.post_id] = {\n      likes:           parseInt(m.likes)    || 0,\n      comments:        parseInt(m.comments) || 0,\n      reposts:         parseInt(m.reposts)  || 0,\n      views:           parseInt(m.views)    || 0,\n      engagement_rate: er,\n      area:            m.area || 'general',\n      tema:            m.tema || m.tema_nombre || '',\n      tipo_post:       m.tipo_post || '',\n      tono:            m.tono || '',\n      fecha:           m.fecha || ''\n    };\n  }\n});\n\n// Build map from LinkedIn API response\nconst liMap = {};\nconst li_elements = li_resp.elements || li_resp.data?.elements || [];\nli_elements.forEach(elem => {\n  if (!elem.id) return;\n  liMap[elem.id] = {\n    likes:    elem.likesSummary?.aggregatedCounts?.numLikes    || 0,\n    comments: elem.commentsSummary?.aggregatedCounts?.numComments || 0,\n    reposts:  elem.totalShareStatistics?.shareCount             || 0,\n    views:    elem.totalShareStatistics?.impressionCount        || 0,\n  };\n});\n\nconst CONNECTIONS = 5065;\n\nlet metricas = [];\n\nif (posts_meta.length > 0) {\n  // Primary: use published posts from Temas Sheet, enrich with LinkedIn API\n  metricas = posts_meta.map(post => {\n    const pid = post.post_id;\n    const li  = liMap[pid] || {};\n    const hist= histMap[pid] || {};\n    const likes    = li.likes    > 0 ? li.likes    : (hist.likes    || 0);\n    const comments = li.comments > 0 ? li.comments : (hist.comments || 0);\n    const reposts  = li.reposts  > 0 ? li.reposts  : (hist.reposts  || 0);\n    const views    = li.views    > 0 ? li.views    : (hist.views    || 0);\n    const er_num = views > 0\n      ? (likes + comments * 2 + reposts * 3) / views\n      : (likes + comments * 2 + reposts * 3) / CONNECTIONS;\n    const fuente = li.likes > 0 || li.comments > 0\n      ? 'linkedin_api'\n      : hist.engagement_rate > 0 ? 'sheet_historico' : 'sin_datos';\n    return {\n      post_id: pid, area: post.area || 'general',\n      tema: post.tema_nombre || post.tema || '', tipo_post: post.tipo_post || '',\n      tono: post.tono || '', fecha: post.fecha_pub || '',\n      likes, comments, reposts, views,\n      engagement_rate: Math.round(er_num * 10000) / 10000,\n      er_percent: (er_num * 100).toFixed(3) + '%', fuente_stats: fuente\n    };\n  });\n} else if (metricas_hist.length > 0) {\n  // FIX: Fallback — use Metricas Sheet directly when no published posts in Temas\n  metricas = metricas_hist\n    .filter(m => m.post_id && (parseFloat(m.engagement_rate) > 0 || m.likes > 0))\n    .map(m => ({\n      post_id: m.post_id, area: m.area || 'general',\n      tema: m.tema || m.tema_nombre || '', tipo_post: m.tipo_post || '',\n      tono: m.tono || '', fecha: m.fecha || '',\n      likes: parseInt(m.likes) || 0, comments: parseInt(m.comments) || 0,\n      reposts: parseInt(m.reposts) || 0, views: parseInt(m.views) || 0,\n      engagement_rate: parseFloat(m.engagement_rate) || 0,\n      er_percent: ((parseFloat(m.engagement_rate) || 0) * 100).toFixed(3) + '%',\n      fuente_stats: 'sheet_historico'\n    }));\n}\n\nif (!metricas.length) {\n  return [{ json: { _sin_metricas: true, mensaje: 'No hay posts para procesar métricas (ni publicados ni históricos)' } }];\n}\n\n// Resumen por área\nconst erPorArea = {};\nmetricas.forEach(m => {\n  const a = m.area || 'general';\n  if (!erPorArea[a]) erPorArea[a] = { sum: 0, count: 0 };\n  erPorArea[a].sum += m.engagement_rate;\n  erPorArea[a].count++;\n});\n\nconst resumen_areas = Object.entries(erPorArea)\n  .map(([area, d]) => ({ area, er_promedio: (d.sum / d.count).toFixed(4), posts_count: d.count }))\n  .sort((a, b) => parseFloat(b.er_promedio) - parseFloat(a.er_promedio));\n\nreturn [{ json: { metricas, resumen_areas, total_posts: metricas.length, li_posts_en_api: li_elements.length } }];\n"
       },
       "id": "82cf9171-fd0c-4739-81f9-06624484136f",
       "name": "Procesar Métricas",
@@ -251,32 +251,23 @@
     },
     {
       "parameters": {
-        "resource": "chat",
-        "modelId": {
-          "__rl": true,
-          "value": "qwen2.5:32b",
-          "mode": "id"
-        },
-        "messages": {
-          "values": [
-            {
-              "content": "Eres un agente analista de métricas de LinkedIn. Analiza los datos de rendimiento de posts y genera insights accionables.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con insights sobre:\n- Patrones de rendimiento por área, tono y tipo de post\n- Qué funciona mejor y qué evitar\n- Recomendaciones concretas para mejorar el engagement\n- Tendencias detectadas\n\nNo incluyas texto fuera del JSON.",
-              "role": "system"
-            },
-            {
-              "content": "=Analiza estas métricas de rendimiento de posts de LinkedIn y genera insights:\n\n{{ $json.texto_analisis }}",
-              "role": "user"
-            }
-          ]
-        },
+        "method": "POST",
+        "url": "http://10.10.10.100:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.3, options: { num_predict: 1200 }, messages: [{ role: 'system', content: `Eres un agente analista de métricas de LinkedIn. Analiza los datos de rendimiento de posts y genera insights accionables.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con insights sobre:\n- Patrones de rendimiento por área, tono y tipo de post\n- Qué funciona mejor y qué evitar\n- Recomendaciones concretas para mejorar el engagement\n- Tendencias detectadas\n\nNo incluyas texto fuera del JSON.` }, { role: 'user', content: 'Analiza estas métricas de rendimiento de posts de LinkedIn y genera insights:\\n\\n' + ($json.texto_analisis || 'Sin datos de métricas disponibles') }]}) }}",
         "options": {
-          "temperature": 0.3
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
         }
       },
       "id": "7c190116-ff41-456e-b04d-aff49e6368cf",
       "name": "🧠 Agente Analyst Qwen",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 1.7,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         2352,
         0
@@ -426,7 +417,7 @@
     {
       "parameters": {
         "chatId": "1160149765",
-        "text": "={{ $json.mensaje }}",
+        "text": "={{ $('Preparar Informe').first().json.mensaje }}",
         "additionalFields": {
           "parse_mode": "HTML"
         }
@@ -533,6 +524,11 @@
             "node": "Preparar para Append",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Preparar Texto Análisis",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -588,6 +584,11 @@
             "node": "Leer Temas para Scores",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Preparar Informe",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -608,17 +609,6 @@
         [
           {
             "node": "Update Scores Sheet",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Scores Sheet": {
-      "main": [
-        [
-          {
-            "node": "Preparar Informe",
             "type": "main",
             "index": 0
           }
