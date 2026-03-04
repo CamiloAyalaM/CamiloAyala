@@ -33,6 +33,25 @@ jobs:
           const fs = require('fs');
           const path = require('path');
 
+          const ALLOWED_SETTINGS = [
+            'executionOrder',
+            'saveDataSuccessExecution',
+            'saveExecutionProgress',
+            'saveManualExecutions',
+            'callerPolicy',
+            'errorWorkflow',
+            'timezone',
+            'executionTimeout',
+            'maxExecutionTimeout'
+          ];
+
+          function sanitizeSettings(settings) {
+            if (!settings || typeof settings !== 'object') return {};
+            return Object.fromEntries(
+              Object.entries(settings).filter(([k]) => ALLOWED_SETTINGS.includes(k))
+            );
+          }
+
           async function start() {
             const url = process.env.N8N_URL.trim().replace(/\/$/, '');
             const api = axios.create({
@@ -44,14 +63,8 @@ jobs:
             });
 
             try {
-              // ESTA ES LA LÍNEA QUE PREGUNTAS:
-              // Busca la carpeta 'workflows' en la raíz del repositorio
               const dir = path.join(process.cwd(), 'workflows');
-              
-              if (!fs.existsSync(dir)) {
-                console.error('❌ Error: No se encontró la carpeta /workflows en la raíz.');
-                process.exit(1);
-              }
+              if (!fs.existsSync(dir)) return console.log('No workflows folder found.');
               
               const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
               const localWorkflows = files.map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')));
@@ -66,7 +79,7 @@ jobs:
                   name: local.name,
                   nodes: local.nodes,
                   connections: local.connections,
-                  settings: local.settings || {},
+                  settings: sanitizeSettings(local.settings),
                   staticData: local.staticData || {}
                 };
 
@@ -82,8 +95,8 @@ jobs:
                 }
 
                 if (local.active !== undefined) {
-                  const action = local.active ? 'activate' : 'deactivate';
-                  await api.post(\`/workflows/\${workflowId}/\${action}\`).catch(() => {});
+                  const endpoint = \`/workflows/\${workflowId}/\${local.active ? 'activate' : 'deactivate'}\`;
+                  await api.post(endpoint).catch(e => console.log('  ⚠️ Estado sin cambios: ' + local.name));
                 }
               }
 
@@ -93,8 +106,10 @@ jobs:
                   console.log('🗑️ Borrado de n8n: ' + remote.name);
                 }
               }
+
+              console.log('🎉 Sync completado exitosamente.');
             } catch (e) {
-              console.error('❌ Error de API:', e.response?.data || e.message);
+              console.error('❌ API Error:', e.response?.data || e.message);
               process.exit(1);
             }
           }
