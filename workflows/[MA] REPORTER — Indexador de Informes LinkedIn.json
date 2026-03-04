@@ -7,167 +7,378 @@
           "item": [{ "mode": "everyMinute" }]
         },
         "triggerOn": "fileCreated",
-        "filters": {
-          "fileType": "text/csv"
-        },
-        "folderId": { "__rl": true, "mode": "name", "value": "LinkedIn Reports" }
+        "filters": {},
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1_I_RkaFHP92q865kkRsTYkXgU_tzBqbp"
+        }
       },
       "id": "trigger-gdrive",
-      "name": "Google Drive — Nuevo Informe",
+      "name": "Drive — Nuevo Informe XLSX",
       "type": "n8n-nodes-base.googleDriveTrigger",
       "typeVersion": 1,
-      "position": [200, 300]
+      "position": [0, 0],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "GOOGLE_DRIVE_CRED_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ma-reporter-manual",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-manual",
+      "name": "Webhook Manual REPORTER",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 220],
+      "webhookId": "ma-reporter-manual"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Unifica trigger automático (Drive) y manual (Webhook)\n// El trigger de Drive entrega: id, name, mimeType\n// El webhook manual puede enviar: { file_id, file_name } en body\nconst fromDrive   = $('Drive — Nuevo Informe XLSX').first?.()?.json;\nconst fromWebhook = $('Webhook Manual REPORTER').first?.()?.json;\n\nconst src = fromDrive?.id ? fromDrive : (fromWebhook?.body || fromWebhook || {});\n\nconst fileId   = src.id   || src.file_id   || null;\nconst fileName = src.name || src.file_name || 'informe.xlsx';\n\nif (!fileId) throw new Error('No se recibió file_id. Asegúrate de pasar { file_id, file_name } en el body del webhook manual.');\n\n// Extraer post_id numérico del nombre del archivo\n// Formato: PostAnalytics_NombreAutor_7430670067249340417.xlsx\nconst match = fileName.match(/(\\d{10,22})(?:\\.[a-z]+)?$/);\nconst postId = match ? match[1] : null;\n\nreturn [{ json: { fileId, fileName, postId } }];"
+      },
+      "id": "unify-trigger",
+      "name": "Unificar Trigger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 100]
     },
     {
       "parameters": {
         "operation": "download",
-        "fileId": { "__rl": true, "mode": "id", "value": "={{ $json.id }}" },
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.fileId }}"
+        },
         "options": {}
       },
-      "id": "download-file",
-      "name": "Descargar CSV",
+      "id": "download-xlsx",
+      "name": "Descargar XLSX",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [450, 300]
+      "position": [560, 100],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "GOOGLE_DRIVE_CRED_ID",
+          "name": "Google Drive account"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// ─── LinkedIn Analytics CSV Parser ─────────────────────────────────────────\n// El CSV de LinkedIn tiene múltiples secciones separadas por líneas en blanco.\n// Secciones típicas:\n//   1. Post performance (métricas globales por post)\n//   2. Top job function (demografía)\n//   3. Top industry\n//   4. Top seniority\n//   5. Top location\n//   6. Top company size\n// ────────────────────────────────────────────────────────────────────────────\n\nconst binaryData = $binary?.data?.data || $binary?.['data'];\nif (!binaryData) throw new Error('No se recibió archivo binario.');\n\n// Decodificar base64 → texto\nconst csvText = Buffer.from(binaryData, 'base64').toString('utf-8');\nconst fileName = $('Google Drive — Nuevo Informe').first().json.name || 'desconocido';\n\n// Extraer post_id del nombre del archivo si existe\n// Formato LinkedIn: PostAnalytics_NombreAutor_PostID.csv\nconst postIdMatch = fileName.match(/_([0-9]{15,20})\\./);\nconst postIdFromFile = postIdMatch ? postIdMatch[1] : null;\n\n// Dividir en líneas y detectar secciones\nconst lines = csvText.split(/\\r?\\n/);\n\n// Parser de bloque CSV → array de objetos\nfunction parseBlock(rows) {\n  if (rows.length < 2) return [];\n  const header = rows[0].split(',').map(h => h.trim().replace(/^\"|\"$/g, ''));\n  const data = [];\n  for (let i = 1; i < rows.length; i++) {\n    const row = rows[i].trim();\n    if (!row) continue;\n    // Simple CSV split (respeta comas dentro de comillas)\n    const vals = [];\n    let current = '';\n    let inQuotes = false;\n    for (const ch of row) {\n      if (ch === '\"') { inQuotes = !inQuotes; continue; }\n      if (ch === ',' && !inQuotes) { vals.push(current.trim()); current = ''; continue; }\n      current += ch;\n    }\n    vals.push(current.trim());\n    const obj = {};\n    header.forEach((h, idx) => { obj[h] = vals[idx] || ''; });\n    data.push(obj);\n  }\n  return data;\n}\n\n// Separar bloques por línea en blanco\nconst blocks = [];\nlet currentBlock = [];\nfor (const line of lines) {\n  if (line.trim() === '') {\n    if (currentBlock.length > 0) { blocks.push(currentBlock); currentBlock = []; }\n  } else {\n    currentBlock.push(line);\n  }\n}\nif (currentBlock.length > 0) blocks.push(currentBlock);\n\n// Identificar cada bloque por su header\nconst sections = {};\nfor (const block of blocks) {\n  if (block.length === 0) continue;\n  const header = block[0].toLowerCase();\n  if (header.includes('content') || header.includes('impressions') || header.includes('views') || header.includes('created')) {\n    sections.performance = parseBlock(block);\n  } else if (header.includes('job function') || header.includes('función')) {\n    sections.job_function = parseBlock(block);\n  } else if (header.includes('industry') || header.includes('industria')) {\n    sections.industry = parseBlock(block);\n  } else if (header.includes('seniority') || header.includes('senioridad')) {\n    sections.seniority = parseBlock(block);\n  } else if (header.includes('location') || header.includes('ubicación') || header.includes('geo')) {\n    sections.location = parseBlock(block);\n  } else if (header.includes('company size') || header.includes('tamaño')) {\n    sections.company_size = parseBlock(block);\n  }\n}\n\n// ── Normalizar métricas de performance ──────────────────────────────────────\nfunction num(v) { return parseFloat((v || '0').replace(/,/g, '').replace('%','')) || 0; }\nfunction pct(v) { const n = num(v); return n > 1 ? n / 100 : n; }\n\nconst postRows = sections.performance || [];\nconst posts = postRows.map(row => {\n  // LinkedIn usa diferentes nombres de columna según idioma/versión\n  const content   = row['Content'] || row['Post'] || row['Contenido'] || '';\n  const createdAt = row['Created date'] || row['Date'] || row['Fecha'] || row['Date Created'] || '';\n  const postId    = row['Post ID'] || row['Link'] || postIdFromFile || '';\n  const postType  = row['Content type'] || row['Type'] || row['Tipo'] || '';\n  \n  const impressions   = num(row['Impressions'] || row['Views'] || row['Impresiones'] || row['Vistas'] || '0');\n  const uniqueViews   = num(row['Unique views'] || row['Vistas únicas'] || '0');\n  const clicks        = num(row['Clicks'] || row['Clics'] || '0');\n  const likes         = num(row['Likes'] || row['Me gusta'] || row['Reactions'] || '0');\n  const comments      = num(row['Comments'] || row['Comentarios'] || '0');\n  const shares        = num(row['Reposts'] || row['Shares'] || row['Compartidos'] || '0');\n  const follows       = num(row['Follows'] || row['Seguidores nuevos'] || '0');\n  \n  // Click-through rate\n  let ctr = pct(row['Click through rate (CTR)'] || row['CTR'] || '0');\n  if (ctr === 0 && impressions > 0) ctr = clicks / impressions;\n  \n  // Engagement rate: (likes + comments + shares + clicks) / impressions\n  const totalEngagements = likes + comments + shares + clicks;\n  const er = impressions > 0 ? totalEngagements / impressions : 0;\n  \n  return {\n    archivo: fileName,\n    post_id: postId,\n    fecha_publicacion: createdAt,\n    tipo: postType,\n    contenido_preview: content.substring(0, 200),\n    impresiones: impressions,\n    vistas_unicas: uniqueViews,\n    clics: clicks,\n    likes: likes,\n    comentarios: comments,\n    compartidos: shares,\n    nuevos_seguidores: follows,\n    ctr: Math.round(ctr * 10000) / 100,  // como porcentaje\n    engagement_rate: Math.round(er * 10000) / 100,\n    total_interacciones: totalEngagements,\n    fecha_importacion: new Date().toISOString().split('T')[0]\n  };\n});\n\n// ── Normalizar demografía ────────────────────────────────────────────────────\nfunction normalizeDemog(rows, category, postId, archivo) {\n  return rows.map(row => {\n    const keys = Object.keys(row);\n    const labelKey = keys[0];\n    const pctKey   = keys.find(k => k.toLowerCase().includes('%') || k.toLowerCase().includes('percentage') || k.toLowerCase().includes('porcentaje')) || keys[1];\n    return {\n      archivo: archivo,\n      post_id: postId,\n      categoria: category,\n      segmento: row[labelKey] || '',\n      porcentaje: num(row[pctKey] || '0'),\n      fecha_importacion: new Date().toISOString().split('T')[0]\n    };\n  });\n}\n\nconst mainPostId = posts[0]?.post_id || postIdFromFile || fileName;\nconst demografias = [\n  ...normalizeDemog(sections.job_function  || [], 'Función laboral',   mainPostId, fileName),\n  ...normalizeDemog(sections.industry      || [], 'Industria',          mainPostId, fileName),\n  ...normalizeDemog(sections.seniority     || [], 'Senioridad',         mainPostId, fileName),\n  ...normalizeDemog(sections.location      || [], 'Ubicación',          mainPostId, fileName),\n  ...normalizeDemog(sections.company_size  || [], 'Tamaño de empresa',  mainPostId, fileName),\n];\n\nreturn [{\n  json: {\n    posts,\n    demografias,\n    archivo: fileName,\n    total_posts: posts.length,\n    total_demog: demografias.length,\n    secciones_detectadas: Object.keys(sections)\n  }\n}];"
+        "operation": "fromFile",
+        "binaryPropertyName": "data",
+        "options": {
+          "sheetName": 0,
+          "range": "",
+          "includeEmptyCell": false
+        }
       },
-      "id": "parse-csv",
-      "name": "Parsear Informe LinkedIn",
-      "type": "n8n-nodes-base.code",
+      "id": "parse-sheet-perf",
+      "name": "Leer Sheet Rendimiento",
+      "type": "n8n-nodes-base.spreadsheetFile",
       "typeVersion": 2,
-      "position": [700, 300]
+      "position": [840, 0]
     },
     {
       "parameters": {
-        "jsCode": "// Expandir el array de posts como items separados\nconst data = $input.first().json;\nreturn data.posts.map(post => ({ json: post }));"
+        "operation": "fromFile",
+        "binaryPropertyName": "data",
+        "options": {
+          "sheetName": 1,
+          "range": "",
+          "includeEmptyCell": false
+        }
       },
-      "id": "split-posts",
-      "name": "Separar Posts",
-      "type": "n8n-nodes-base.code",
+      "id": "parse-sheet-func",
+      "name": "Leer Sheet Función",
+      "type": "n8n-nodes-base.spreadsheetFile",
       "typeVersion": 2,
-      "position": [950, 180]
+      "position": [840, 160]
     },
     {
       "parameters": {
-        "jsCode": "// Expandir el array de demografías como items separados\nconst data = $input.first().json;\nreturn data.demografias.map(d => ({ json: d }));"
+        "operation": "fromFile",
+        "binaryPropertyName": "data",
+        "options": {
+          "sheetName": 2,
+          "range": "",
+          "includeEmptyCell": false
+        }
       },
-      "id": "split-demog",
-      "name": "Separar Demografía",
+      "id": "parse-sheet-ind",
+      "name": "Leer Sheet Industria",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [840, 320]
+    },
+    {
+      "parameters": {
+        "operation": "fromFile",
+        "binaryPropertyName": "data",
+        "options": {
+          "sheetName": 3,
+          "range": "",
+          "includeEmptyCell": false
+        }
+      },
+      "id": "parse-sheet-sen",
+      "name": "Leer Sheet Senioridad",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [840, 480]
+    },
+    {
+      "parameters": {
+        "operation": "fromFile",
+        "binaryPropertyName": "data",
+        "options": {
+          "sheetName": 4,
+          "range": "",
+          "includeEmptyCell": false
+        }
+      },
+      "id": "parse-sheet-geo",
+      "name": "Leer Sheet Geografía",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [840, 640]
+    },
+    {
+      "parameters": {
+        "operation": "fromFile",
+        "binaryPropertyName": "data",
+        "options": {
+          "sheetName": 5,
+          "range": "",
+          "includeEmptyCell": false
+        }
+      },
+      "id": "parse-sheet-emp",
+      "name": "Leer Sheet Empresa",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [840, 800]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── Normalizar métricas del Sheet de Rendimiento ─────────────────────────\n// LinkedIn XLSX Sheet 0: Post performance\n// Columnas típicas (pueden estar en EN o ES):\n//   Created date | Content | Content type | Impressions | Views | Unique views\n//   Clicks | Likes | Comments | Reposts | Follows | CTR | Engagement rate\n//   o en español: Fecha | Contenido | Tipo | Impresiones | Vistas únicas...\n\nconst postId   = $('Unificar Trigger').first().json.postId;\nconst fileName = $('Unificar Trigger').first().json.fileName;\n\nfunction num(v) {\n  if (v === null || v === undefined || v === '') return 0;\n  return parseFloat(String(v).replace(/,/g, '').replace(/%$/, '')) || 0;\n}\nfunction pct(v) {\n  const n = num(v);\n  // LinkedIn puede entregar CTR como 0.042 o como 4.2\n  return n > 1 ? Math.round(n * 100) / 10000 : n;\n}\n\nconst rows = $input.all().map(i => i.json);\nif (!rows.length) return [{ json: { _sin_datos: true, fileName } }];\n\n// Detectar nombres de columna con tolerancia a idioma y versión\nfunction col(row, ...candidates) {\n  for (const c of candidates) {\n    const key = Object.keys(row).find(k => k.toLowerCase().includes(c.toLowerCase()));\n    if (key && row[key] !== undefined && row[key] !== '') return row[key];\n  }\n  return '';\n}\n\nconst posts = rows\n  .filter(row => Object.keys(row).length > 2)  // ignorar filas vacías\n  .map(row => {\n    const impresiones = num(col(row, 'impressions', 'impresiones', 'views', 'vistas'));\n    const vistasUnicas = num(col(row, 'unique views', 'vistas únicas', 'unique_views'));\n    const clics        = num(col(row, 'clicks', 'clics'));\n    const likes        = num(col(row, 'likes', 'reactions', 'me gusta', 'reacciones'));\n    const comentarios  = num(col(row, 'comments', 'comentarios'));\n    const compartidos  = num(col(row, 'reposts', 'shares', 'compartidos'));\n    const seguidores   = num(col(row, 'follows', 'seguidores', 'new followers'));\n    const ctr_raw      = col(row, 'click through rate', 'ctr', 'click rate');\n    const er_raw       = col(row, 'engagement rate', 'tasa de interacción', 'engagement');\n\n    let ctr = pct(ctr_raw);\n    if (ctr === 0 && impresiones > 0) ctr = clics / impresiones;\n\n    let er = pct(er_raw);\n    if (er === 0 && impresiones > 0) {\n      er = (likes + comentarios + compartidos + clics) / impresiones;\n    }\n\n    const totalInteracciones = likes + comentarios + compartidos + clics;\n\n    const fechaRaw = col(row, 'created', 'date', 'fecha', 'published');\n    const tipoRaw  = col(row, 'content type', 'tipo', 'type', 'format');\n    const contenido = String(col(row, 'content', 'contenido', 'text', 'post') || '').substring(0, 300);\n\n    return {\n      post_id:              postId,\n      archivo:              fileName,\n      fecha_publicacion:    fechaRaw,\n      tipo:                 tipoRaw,\n      contenido_preview:    contenido,\n      impresiones:          impresiones,\n      vistas_unicas:        vistasUnicas,\n      clics:                clics,\n      likes:                likes,\n      comentarios:          comentarios,\n      compartidos:          compartidos,\n      nuevos_seguidores:    seguidores,\n      ctr_pct:              Math.round(ctr * 10000) / 100,\n      engagement_rate:      Math.round(er * 10000) / 10000,\n      total_interacciones:  totalInteracciones,\n      fecha_importacion:    new Date().toISOString().split('T')[0]\n    };\n  });\n\nreturn posts.length > 0\n  ? posts.map(p => ({ json: p }))\n  : [{ json: { _sin_datos: true, fileName } }];"
+      },
+      "id": "norm-rendimiento",
+      "name": "Normalizar Rendimiento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [950, 420]
+      "position": [1120, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── Normalizar demografía de todos los sheets en un solo output ──────────\n// Recibe items de los 5 sheets de demografía, concatenados\nconst postId   = $('Unificar Trigger').first().json.postId;\nconst fileName = $('Unificar Trigger').first().json.fileName;\nconst hoy      = new Date().toISOString().split('T')[0];\n\n// Detectar de cuál nodo vienen los items\nconst sheetLabels = [\n  { node: 'Leer Sheet Función',   label: 'Función laboral' },\n  { node: 'Leer Sheet Industria', label: 'Industria' },\n  { node: 'Leer Sheet Senioridad',label: 'Senioridad' },\n  { node: 'Leer Sheet Geografía', label: 'Ubicación' },\n  { node: 'Leer Sheet Empresa',   label: 'Tamaño empresa' },\n];\n\nconst result = [];\n\nfor (const { node, label } of sheetLabels) {\n  let rows;\n  try { rows = $(node).all().map(i => i.json); }\n  catch(e) { continue; }  // sheet puede no existir en algunos exports\n\n  for (const row of rows) {\n    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== '');\n    if (keys.length < 2) continue;\n\n    // Primera columna = nombre del segmento, segunda = porcentaje\n    const segmento   = String(row[keys[0]] || '').trim();\n    const pctRaw     = row[keys[1]] || row[keys.find(k => k.toLowerCase().includes('%') || k.toLowerCase().includes('pct') || k.toLowerCase().includes('percent')) || keys[1]] || 0;\n    const porcentaje = parseFloat(String(pctRaw).replace(/%/,'').replace(',','.')) || 0;\n\n    if (!segmento) continue;\n\n    result.push({\n      post_id:           postId,\n      archivo:           fileName,\n      categoria:         label,\n      segmento:          segmento,\n      porcentaje:        porcentaje > 1 ? Math.round(porcentaje * 100) / 100 : Math.round(porcentaje * 10000) / 100,\n      fecha_importacion: hoy\n    });\n  }\n}\n\nif (!result.length) return [{ json: { _sin_demog: true, post_id: postId } }];\nreturn result.map(r => ({ json: r }));"
+      },
+      "id": "norm-demografia",
+      "name": "Normalizar Demografía",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 500]
     },
     {
       "parameters": {
         "operation": "appendOrUpdate",
-        "documentId": { "__rl": true, "mode": "id", "value": "TU_GOOGLE_SHEET_ID" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "Rendimiento Posts" },
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Metricas",
+          "mode": "name"
+        },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "archivo": "={{ $json.archivo }}",
-            "post_id": "={{ $json.post_id }}",
-            "fecha_publicacion": "={{ $json.fecha_publicacion }}",
-            "tipo": "={{ $json.tipo }}",
-            "contenido_preview": "={{ $json.contenido_preview }}",
-            "impresiones": "={{ $json.impresiones }}",
-            "vistas_unicas": "={{ $json.vistas_unicas }}",
-            "clics": "={{ $json.clics }}",
-            "likes": "={{ $json.likes }}",
-            "comentarios": "={{ $json.comentarios }}",
-            "compartidos": "={{ $json.compartidos }}",
-            "nuevos_seguidores": "={{ $json.nuevos_seguidores }}",
-            "ctr": "={{ $json.ctr }}",
-            "engagement_rate": "={{ $json.engagement_rate }}",
+            "post_id":             "={{ $json.post_id }}",
+            "views":               "={{ $json.impresiones }}",
+            "likes":               "={{ $json.likes }}",
+            "comments":            "={{ $json.comentarios }}",
+            "reposts":             "={{ $json.compartidos }}",
+            "engagement_rate":     "={{ $json.engagement_rate }}",
+            "clics":               "={{ $json.clics }}",
+            "ctr_pct":             "={{ $json.ctr_pct }}",
+            "vistas_unicas":       "={{ $json.vistas_unicas }}",
+            "nuevos_seguidores":   "={{ $json.nuevos_seguidores }}",
             "total_interacciones": "={{ $json.total_interacciones }}",
-            "fecha_importacion": "={{ $json.fecha_importacion }}"
-          }
+            "tipo":                "={{ $json.tipo }}",
+            "contenido_preview":   "={{ $json.contenido_preview }}",
+            "fecha_publicacion":   "={{ $json.fecha_publicacion }}",
+            "archivo_fuente":      "={{ $json.archivo }}",
+            "fecha_importacion":   "={{ $json.fecha_importacion }}"
+          },
+          "matchingColumns": ["post_id"],
+          "schema": []
         },
-        "matchingColumns": ["post_id"],
-        "options": { "cellFormat": "USER_ENTERED" }
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
       },
-      "id": "sheet-rendimiento",
-      "name": "Sheet — Rendimiento Posts",
+      "id": "upsert-metricas",
+      "name": "Upsert Metricas Sheet",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1200, 180]
+      "position": [1400, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
     },
     {
       "parameters": {
-        "operation": "append",
-        "documentId": { "__rl": true, "mode": "id", "value": "TU_GOOGLE_SHEET_ID" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "Demografía Posts" },
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1TmHXCe_68qA8GDZhZfzK-qvOh0H09tZqAF3UI5nWSrI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Demografía Posts",
+          "mode": "name"
+        },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "archivo": "={{ $json.archivo }}",
-            "post_id": "={{ $json.post_id }}",
-            "categoria": "={{ $json.categoria }}",
-            "segmento": "={{ $json.segmento }}",
-            "porcentaje": "={{ $json.porcentaje }}",
+            "post_id":           "={{ $json.post_id }}",
+            "categoria":         "={{ $json.categoria }}",
+            "segmento":          "={{ $json.segmento }}",
+            "porcentaje":        "={{ $json.porcentaje }}",
+            "archivo":           "={{ $json.archivo }}",
             "fecha_importacion": "={{ $json.fecha_importacion }}"
-          }
+          },
+          "matchingColumns": ["post_id", "categoria", "segmento"],
+          "schema": []
         },
-        "options": { "cellFormat": "USER_ENTERED" }
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
       },
-      "id": "sheet-demografia",
-      "name": "Sheet — Demografía Posts",
+      "id": "upsert-demografia",
+      "name": "Upsert Demografía Sheet",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1200, 420]
+      "position": [1400, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "59A9Vs89LRQlZq9m",
+          "name": "Google Sheets account"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// Consolidar resultados de ambas ramas\nconst archivo = $('Parsear Informe LinkedIn').first().json.archivo;\nconst totalPosts = $('Parsear Informe LinkedIn').first().json.total_posts;\nconst totalDemog = $('Parsear Informe LinkedIn').first().json.total_demog;\nconst secciones = $('Parsear Informe LinkedIn').first().json.secciones_detectadas;\n\nreturn [{ json: {\n  archivo,\n  total_posts: totalPosts,\n  total_demog: totalDemog,\n  secciones_detectadas: secciones\n}}];"
+        "jsCode": "// Consolidar resultados de ambas ramas para la notificación\nconst trigger = $('Unificar Trigger').first().json;\nconst metItems = $('Upsert Metricas Sheet').all();\nconst demItems = $('Upsert Demografía Sheet').all();\n\n// Extraer métricas del primer post indexado\nconst m = metItems[0]?.json || {};\n\nconst er   = parseFloat(m.engagement_rate || 0);\nconst erPct = (er * 100).toFixed(2);\n\nreturn [{ json: {\n  post_id:          trigger.postId,\n  archivo:          trigger.fileName,\n  impresiones:      m.impresiones     || m.views || 0,\n  likes:            m.likes           || 0,\n  comentarios:      m.comentarios     || m.comments || 0,\n  compartidos:      m.compartidos     || m.reposts || 0,\n  engagement_rate:  erPct,\n  ctr_pct:          m.ctr_pct         || 0,\n  vistas_unicas:    m.vistas_unicas   || 0,\n  total_demog_rows: demItems.length,\n  fecha_importacion: new Date().toISOString().split('T')[0]\n}}];"
       },
       "id": "consolidar",
-      "name": "Consolidar Resultado",
+      "name": "Consolidar para Notificación",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1450, 300]
+      "position": [1680, 250]
     },
     {
       "parameters": {
-        "chatId": "TU_TELEGRAM_CHAT_ID",
-        "text": "={{ '📊 *Informe indexado*\\n\\n📁 Archivo: `' + $json.archivo + '`\\n📝 Posts: ' + $json.total_posts + '\\n👥 Datos demográficos: ' + $json.total_demog + ' segmentos\\n🗂 Secciones: ' + ($json.secciones_detectadas || []).join(', ') }}",
-        "additionalFields": { "parse_mode": "Markdown" }
+        "chatId": "1160149765",
+        "text": "={{ '📊 *Informe indexado*\\n\\n🆔 Post ID: `' + $json.post_id + '`\\n📁 Archivo: `' + $json.archivo + '`\\n\\n📈 *Métricas*\\n👁 Impresiones: ' + ($json.impresiones || 0).toLocaleString() + '\\n🎯 Vistas únicas: ' + ($json.vistas_unicas || 0).toLocaleString() + '\\n❤️ Likes: ' + $json.likes + '\\n💬 Comentarios: ' + $json.comentarios + '\\n🔄 Compartidos: ' + $json.compartidos + '\\n🔗 CTR: ' + $json.ctr_pct + '%\\n⚡️ ER: ' + $json.engagement_rate + '%\\n\\n👥 Demografía: ' + $json.total_demog_rows + ' segmentos indexados\\n📅 ' + $json.fecha_importacion }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
       },
       "id": "notify-telegram",
       "name": "Notificar Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1700, 300]
+      "position": [1960, 250],
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {}
+      },
+      "id": "ack-webhook",
+      "name": "ACK Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [280, 320]
     }
   ],
   "connections": {
-    "Google Drive — Nuevo Informe": {
-      "main": [[{ "node": "Descargar CSV", "type": "main", "index": 0 }]]
+    "Drive — Nuevo Informe XLSX": {
+      "main": [[{ "node": "Unificar Trigger", "type": "main", "index": 0 }]]
     },
-    "Descargar CSV": {
-      "main": [[{ "node": "Parsear Informe LinkedIn", "type": "main", "index": 0 }]]
-    },
-    "Parsear Informe LinkedIn": {
+    "Webhook Manual REPORTER": {
       "main": [[
-        { "node": "Separar Posts",      "type": "main", "index": 0 },
-        { "node": "Separar Demografía", "type": "main", "index": 0 }
+        { "node": "ACK Webhook",      "type": "main", "index": 0 },
+        { "node": "Unificar Trigger", "type": "main", "index": 0 }
       ]]
     },
-    "Separar Posts": {
-      "main": [[{ "node": "Sheet — Rendimiento Posts", "type": "main", "index": 0 }]]
+    "Unificar Trigger": {
+      "main": [[{ "node": "Descargar XLSX", "type": "main", "index": 0 }]]
     },
-    "Separar Demografía": {
-      "main": [[{ "node": "Sheet — Demografía Posts", "type": "main", "index": 0 }]]
+    "Descargar XLSX": {
+      "main": [[
+        { "node": "Leer Sheet Rendimiento", "type": "main", "index": 0 },
+        { "node": "Leer Sheet Función",     "type": "main", "index": 0 },
+        { "node": "Leer Sheet Industria",   "type": "main", "index": 0 },
+        { "node": "Leer Sheet Senioridad",  "type": "main", "index": 0 },
+        { "node": "Leer Sheet Geografía",   "type": "main", "index": 0 },
+        { "node": "Leer Sheet Empresa",     "type": "main", "index": 0 }
+      ]]
     },
-    "Sheet — Rendimiento Posts": {
-      "main": [[{ "node": "Consolidar Resultado", "type": "main", "index": 0 }]]
+    "Leer Sheet Rendimiento": {
+      "main": [[{ "node": "Normalizar Rendimiento", "type": "main", "index": 0 }]]
     },
-    "Sheet — Demografía Posts": {
-      "main": [[{ "node": "Consolidar Resultado", "type": "main", "index": 0 }]]
+    "Leer Sheet Función": {
+      "main": [[{ "node": "Normalizar Demografía", "type": "main", "index": 0 }]]
     },
-    "Consolidar Resultado": {
+    "Leer Sheet Industria": {
+      "main": [[{ "node": "Normalizar Demografía", "type": "main", "index": 0 }]]
+    },
+    "Leer Sheet Senioridad": {
+      "main": [[{ "node": "Normalizar Demografía", "type": "main", "index": 0 }]]
+    },
+    "Leer Sheet Geografía": {
+      "main": [[{ "node": "Normalizar Demografía", "type": "main", "index": 0 }]]
+    },
+    "Leer Sheet Empresa": {
+      "main": [[{ "node": "Normalizar Demografía", "type": "main", "index": 0 }]]
+    },
+    "Normalizar Rendimiento": {
+      "main": [[{ "node": "Upsert Metricas Sheet", "type": "main", "index": 0 }]]
+    },
+    "Normalizar Demografía": {
+      "main": [[{ "node": "Upsert Demografía Sheet", "type": "main", "index": 0 }]]
+    },
+    "Upsert Metricas Sheet": {
+      "main": [[{ "node": "Consolidar para Notificación", "type": "main", "index": 0 }]]
+    },
+    "Upsert Demografía Sheet": {
+      "main": [[{ "node": "Consolidar para Notificación", "type": "main", "index": 0 }]]
+    },
+    "Consolidar para Notificación": {
       "main": [[{ "node": "Notificar Telegram", "type": "main", "index": 0 }]]
     }
   },
@@ -178,6 +389,6 @@
     "saveExecutionProgress": true
   },
   "meta": {
-    "instanceId": "linkedin-reporter-v1"
+    "instanceId": "ma-reporter-v2"
   }
 }
