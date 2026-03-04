@@ -56,50 +56,47 @@ jobs:
               for (const local of localWorkflows) {
                 const existing = remoteWorkflows.find(r => r.name === local.name);
                 
-                // NOTA: La API de n8n v1 tiene un bug conocido donde rechaza
-                // campos validos en settings (executionOrder, callerPolicy, etc.)
-                // Por eso enviamos settings:{} y manejamos activacion por separado
                 const body = {
                   name: local.name,
                   nodes: local.nodes,
                   connections: local.connections,
                   settings: {},
-                  staticData: local.staticData || null
+                  staticData: null
                 };
+
+                // DEBUG: log exact body being sent
+                console.log('--- Sending body for: ' + local.name);
+                console.log(JSON.stringify(body, null, 2).substring(0, 500));
 
                 let workflowId;
                 if (existing) {
-                  await api.put('/workflows/' + existing.id, body);
-                  workflowId = existing.id;
-                  console.log('✅ Actualizado: ' + local.name);
+                  // WORKAROUND: Delete + Create instead of PUT (avoids n8n API validation bug)
+                  console.log('  🗑️ Deleting existing to recreate: ' + existing.id);
+                  await api.delete('/workflows/' + existing.id);
+                  const created = await api.post('/workflows', body);
+                  workflowId = created.data.id;
+                  console.log('✅ Recreado: ' + local.name + ' (id: ' + workflowId + ')');
                 } else {
                   const created = await api.post('/workflows', body);
                   workflowId = created.data.id;
-                  console.log('✨ Creado: ' + local.name);
+                  console.log('✨ Creado: ' + local.name + ' (id: ' + workflowId + ')');
                 }
 
-                // Activar/desactivar segun estado en Git
+                // Activar segun estado en Git
                 if (local.active === true) {
                   await api.post(\`/workflows/\${workflowId}/activate\`)
-                    .then(() => console.log('  ⚡ Activado: ' + local.name))
-                    .catch(() => console.log('  ⚠️ Ya estaba activo: ' + local.name));
-                } else if (local.active === false) {
-                  await api.post(\`/workflows/\${workflowId}/deactivate\`)
-                    .catch(() => {});
-                }
-              }
-
-              // PRUNING: Borrar workflows en n8n que no esten en Git
-              for (const remote of remoteWorkflows) {
-                if (!localWorkflows.some(l => l.name === remote.name)) {
-                  await api.delete('/workflows/' + remote.id);
-                  console.log('🗑️ Borrado de n8n: ' + remote.name);
+                    .then(() => console.log('  ⚡ Activado'))
+                    .catch(e => console.log('  ⚠️ No se pudo activar: ' + (e.response?.data?.message || e.message)));
                 }
               }
 
               console.log('🎉 Sync completado exitosamente.');
             } catch (e) {
               console.error('❌ API Error:', e.response?.data || e.message);
+              if (e.response?.config) {
+                console.error('Request URL:', e.response.config.url);
+                console.error('Request data:', e.response.config.data?.substring(0, 1000));
+              }
               process.exit(1);
             }
           }
