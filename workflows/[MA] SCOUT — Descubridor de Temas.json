@@ -160,7 +160,7 @@
               "role": "system"
             },
             {
-              "content": "={{ \"Analiza los siguientes artículos y extrae temas para posts de LinkedIn:\\n\\n\" + $json.texto_combinado }}",
+              "content": "=Analiza los siguientes artículos y extrae temas para posts de LinkedIn:\n\n{{ $json.texto_combinado }}",
               "role": "user"
             }
           ]
