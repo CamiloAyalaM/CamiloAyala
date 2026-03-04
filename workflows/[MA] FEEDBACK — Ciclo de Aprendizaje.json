@@ -25,7 +25,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "ma-feedback-manual",
-        "responseMode": "lastNode",
+        "responseMode": "onReceived",
         "options": {}
       },
       "id": "f44c79c6-926f-4afb-9aff-344f3715c608",
@@ -268,21 +268,6 @@
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json) }}",
-        "options": {}
-      },
-      "id": "2878359a-33ef-4e83-93b6-393566b4d6c5",
-      "name": "Responder Webhook",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        2352,
-        -208
-      ]
-    },
-    {
-      "parameters": {
         "chatId": "1160149765",
         "text": "={{ $json.mensaje }}",
         "additionalFields": {
@@ -442,11 +427,6 @@
     "Preparar Informe Feedback": {
       "main": [
         [
-          {
-            "node": "Responder Webhook",
-            "type": "main",
-            "index": 0
-          },
           {
             "node": "Telegram Informe Semanal 🔄",
             "type": "main",
