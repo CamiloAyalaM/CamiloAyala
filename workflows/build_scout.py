@@ -85,8 +85,9 @@ def n_llm(name, sys_p, user_p, temp, max_tok, pos):
                             "cachedResultName": "QWEN2.5:32B"},
                 "messages": {"values": [
                     {"content": sys_p, "role": "system"},
-                    {"content": user_p}
+                    {"content": user_p, "role": "user"}
                 ]},
+                "simplifyOutput": True,
                 "options": {"maxTokens": max_tok, "temperature": temp}
             },
             "credentials": {"openAiApi": CRED_OLLAMA}}
@@ -255,7 +256,7 @@ return temas.map(t => ({ json: t }));
 
 CODE_FILTRAR_NUEVOS = r'''
 // Filtrar temas que ya existen en el Sheet para evitar duplicados
-const temas_propuestos = $input.all().map(i => i.json);
+const temas_propuestos = $('Parsear Temas Scout').all().map(i => i.json);
 const temas_existentes = $('Leer Temas Existentes').all().map(i => (i.json.tema||i.json.tema_nombre||'').toLowerCase().trim());
 
 const temas_nuevos = temas_propuestos.filter(t => {
@@ -442,8 +443,8 @@ def build():
     connect(conn, jina_fetch["name"],comb["name"])
     connect(conn, comb["name"],      scout_llm["name"])
     connect(conn, scout_llm["name"], parsear["name"])
-    connect(conn, parsear["name"],   filtrar["name"])
-    connect(conn, parsear["name"],   leer_ex["name"])   # leer en paralelo
+    connect(conn, parsear["name"],   leer_ex["name"])   # leer_ex primero
+    connect(conn, leer_ex["name"],   filtrar["name"])  # filtrar espera a leer_ex
     connect(conn, filtrar["name"],   prep_ap["name"])
     connect(conn, prep_ap["name"],   save["name"])
     connect(conn, save["name"],      prep_n["name"])

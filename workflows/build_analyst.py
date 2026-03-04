@@ -61,8 +61,9 @@ def n_llm(name, sys_p, user_p, temp, max_tok, pos):
                             "cachedResultName": "QWEN2.5:32B"},
                 "messages": {"values": [
                     {"content": sys_p, "role": "system"},
-                    {"content": user_p}
+                    {"content": user_p, "role": "user"}
                 ]},
+                "simplifyOutput": True,
                 "options": {"maxTokens": max_tok, "temperature": temp}
             },
             "credentials": {"openAiApi": CRED_OLLAMA}}
@@ -159,56 +160,22 @@ return [{ json: {
 '''
 
 CODE_PROCESAR_METRICAS = r'''
-const apify_raw = $json;
-const posts_meta = $('Filtrar Posts a Actualizar').first().json.posts || [];
-
-// Construir mapa de post_id → metadata del sheet
-const metaMap = {};
-posts_meta.forEach(p => {
-  if (p.post_id) metaMap[p.post_id] = p;
-});
-
-// Procesar respuesta de Apify
-const items_apify = Array.isArray(apify_raw) ? apify_raw : (apify_raw.items || apify_raw.data || []);
-
-const metricas = items_apify.map(post => {
-  const post_id = post.id || post.postId || post.entityUrn || '';
-  const likes   = parseInt(post.reactions?.count || post.likeCount || post.numLikes || 0);
-  const comments= parseInt(post.commentsCount || post.numComments || 0);
-  const reposts = parseInt(post.repostsCount || post.numReposts || 0);
-  const views   = parseInt(post.impressionCount || post.numImpressions || 0);
-  const connections = 5065; // Conexiones reales de Camilo
-  const er = views > 0 ? (likes + comments*2 + reposts*3) / views : (likes + comments*2 + reposts*3) / connections;
-  const meta = metaMap[post_id] || {};
-
-  return {
-    post_id,
-    area:             meta.area || post.area || 'general',
-    tema:             meta.tema || meta.tema_nombre || '',
-    tipo_post:        meta.tipo_post || '',
-    tono:             meta.tono || '',
-    fecha:            post.date || post.postedDate || meta.fecha_pub || '',
-    likes,
-    comments,
-    reposts,
-    views,
-    engagement_rate:  Math.round(er * 10000) / 10000,
-    er_percent:       (er * 100).toFixed(3) + '%'
-  };
-}).filter(m => m.post_id);
+// Lee directamente del Sheet de Métricas (sin Apify)
+const rows = $input.all().map(i => i.json);
+const metricas = rows.filter(m => m.post_id && (m.engagement_rate !== undefined && m.engagement_rate !== ''));
 
 if (!metricas.length) {
-  return [{ json: { _sin_metricas: true, mensaje: 'Apify no devolvió posts con métricas' } }];
+  return [{ json: { _sin_metricas: true, mensaje: 'No hay métricas registradas en el Sheet todavía' } }];
 }
 
 // Calcular promedios por área
 const erPorArea = {};
 metricas.forEach(m => {
   const a = m.area || 'general';
-  if (!erPorArea[a]) erPorArea[a] = { sum: 0, count: 0, ers: [] };
-  erPorArea[a].sum += m.engagement_rate;
+  const er = parseFloat(m.engagement_rate) || 0;
+  if (!erPorArea[a]) erPorArea[a] = { sum: 0, count: 0 };
+  erPorArea[a].sum += er;
   erPorArea[a].count++;
-  erPorArea[a].ers.push(m.engagement_rate);
 });
 
 const resumen_areas = Object.entries(erPorArea).map(([area, data]) => ({
@@ -445,13 +412,9 @@ def build():
         connect(conn, trigger, leer_t["name"])
         connect(conn, trigger, leer_m["name"])
 
-    connect(conn, leer_t["name"],   filtrar["name"])
-    connect(conn, filtrar["name"],  prep_ap["name"])
-    connect(conn, prep_ap["name"],  apify["name"])
-    connect(conn, apify["name"],    proc_m["name"])
-    connect(conn, proc_m["name"],   prep_ap2["name"])
-    connect(conn, prep_ap2["name"], save_m["name"])
-    connect(conn, save_m["name"],   prep_txt["name"])
+    # Pipeline directo: leer_m → proc_m → prep_txt (sin Apify)
+    connect(conn, leer_m["name"],   proc_m["name"])
+    connect(conn, proc_m["name"],   prep_txt["name"])
     connect(conn, prep_txt["name"], qwen_ins["name"])
     connect(conn, qwen_ins["name"], pars_ins["name"])
     connect(conn, pars_ins["name"], leer_ts["name"])

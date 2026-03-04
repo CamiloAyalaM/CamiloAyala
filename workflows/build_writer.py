@@ -88,8 +88,9 @@ def n_llm(name, sys_p, user_p, temp, max_tok, pos):
                             "cachedResultName": "QWEN2.5:32B"},
                 "messages": {"values": [
                     {"content": sys_p, "role": "system"},
-                    {"content": user_p}
+                    {"content": user_p, "role": "user"}
                 ]},
+                "simplifyOutput": True,
                 "options": {"maxTokens": max_tok, "temperature": temp}
             },
             "credentials": {"openAiApi": CRED_OLLAMA}}
@@ -136,7 +137,7 @@ def n_sheets_append(name, gid, sheet_name, cols_map, pos):
 def n_merge(name, pos):
     return {"id": nid(), "name": name, "type": "n8n-nodes-base.merge",
             "typeVersion": 3, "position": pos,
-            "parameters": {"mode": "combine", "combineBy": "combineAll", "options": {}}}
+            "parameters": {"mode": "append", "options": {}}}
 
 def n_if(name, left, op, right, pos):
     return {"id": nid(), "name": name, "type": "n8n-nodes-base.if",
@@ -660,7 +661,7 @@ def build():
 
     # Triggers
     sched  = add(n_schedule("Trigger Diario",   "0 14 * * 1,3,5", [0, -300]))
-    wh_man = add(n_webhook ("Webhook Manual",   "ma-writer-manual", [0, 300]))
+    wh_man = add(n_webhook ("Webhook Manual",   "ma-writer-manual", [0, 300], response_mode="onReceived"))
 
     # Leer sheets (3 en paralelo desde trigger)
     temas  = add(n_sheets_read("Leer Temas",    "Temas",    TEMAS_GID,    [260, 0]))
