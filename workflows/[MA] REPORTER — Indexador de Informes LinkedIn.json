@@ -4,7 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "ma-reporter-manual",
+        "path": "ma-reporter-indexador",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -13,7 +13,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [0, 220],
-      "webhookId": "ma-reporter-manual"
+      "webhookId": "ma-reporter-indexador"
     },
     {
       "parameters": {
