@@ -100,8 +100,7 @@
     },
     {
       "parameters": {
-        "mode": "combine",
-        "combineBy": "combineAll",
+        "mode": "append",
         "options": {}
       },
       "id": "f10f0172-755d-402b-85fe-93c8876754d5",
@@ -128,32 +127,23 @@
     },
     {
       "parameters": {
-        "resource": "chat",
-        "modelId": {
-          "__rl": true,
-          "value": "qwen2.5:32b",
-          "mode": "id"
-        },
-        "messages": {
-          "values": [
-            {
-              "content": "Eres un agente de feedback para una estrategia de contenido en LinkedIn. Analiza las correlaciones de rendimiento y genera recomendaciones.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"ajustes\": {\n    \"areas_boost\": [\"áreas con mejor rendimiento para potenciar\"],\n    \"areas_penalizar\": [\"áreas con bajo rendimiento para reducir\"],\n    \"tonos_boost\": [\"tonos que mejor funcionan\"]\n  },\n  \"conclusiones\": {\n    \"area_estrella\": \"área con mejor ER\",\n    \"tono_ganador\": \"tono más efectivo\",\n    \"dia_optimo\": \"día de la semana con mejor rendimiento\",\n    \"patron_principal\": \"descripción del patrón principal detectado\"\n  },\n  \"proximas_semanas\": {\n    \"enfoque\": \"recomendación de enfoque\",\n    \"evitar\": \"qué evitar\"\n  },\n  \"alerta\": \"alerta importante si la hay, o cadena vacía\"\n}\n\nNo incluyas texto fuera del JSON.",
-              "role": "system"
-            },
-            {
-              "content": "=Analiza estas correlaciones de rendimiento y genera recomendaciones:\n\n{{ $json.texto_correlaciones }}",
-              "role": "user"
-            }
-          ]
-        },
+        "method": "POST",
+        "url": "http://10.10.10.100:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.4, options: { num_predict: 1000 }, messages: [{ role: 'system', content: `Eres un agente de feedback para una estrategia de contenido en LinkedIn. Analiza las correlaciones de rendimiento y genera recomendaciones.\n\nRESPONDE ÚNICAMENTE EN JSON VÁLIDO con esta estructura:\n{\n  \"ajustes\": {\n    \"areas_boost\": [\"áreas con mejor rendimiento para potenciar\"],\n    \"areas_penalizar\": [\"áreas con bajo rendimiento para reducir\"],\n    \"tonos_boost\": [\"tonos que mejor funcionan\"]\n  },\n  \"conclusiones\": {\n    \"area_estrella\": \"área con mejor ER\",\n    \"tono_ganador\": \"tono más efectivo\",\n    \"dia_optimo\": \"día de la semana con mejor rendimiento\",\n    \"patron_principal\": \"descripción del patrón principal detectado\"\n  },\n  \"proximas_semanas\": {\n    \"enfoque\": \"recomendación de enfoque\",\n    \"evitar\": \"qué evitar\"\n  },\n  \"alerta\": \"alerta importante si la hay, o cadena vacía\"\n}\n\nNo incluyas texto fuera del JSON.` }, { role: 'user', content: 'Analiza estas correlaciones de rendimiento y genera recomendaciones:\\n\\n' + ($json.texto_correlaciones || 'Sin datos disponibles') }]}) }}",
         "options": {
-          "temperature": 0.3
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
         }
       },
       "id": "dc24d5d6-3112-4b2d-9074-37355e271c40",
       "name": "🔄 Agente FEEDBACK Qwen",
-      "type": "n8n-nodes-base.openAi",
-      "typeVersion": 1.7,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1040,
         0
@@ -210,7 +200,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst data        = $json;\nconst recom       = data.recom || {};\nconst areas_res   = data.areas_res || [];\nconst tonos_res   = data.tonos_res || [];\nconst er_mediana  = data.er_mediana || 0;\nconst temas_sheet = $('Leer Temas Scores').all().map(i => i.json);\n\n// Map de boost por área (normalizado 0.7 → 1.5)\nconst erPorArea = {};\nareas_res.forEach(r => { erPorArea[r.key] = r.avg; });\nconst er_vals = areas_res.map(r => r.avg);\nconst er_max  = er_vals.length ? Math.max(...er_vals) : 1;\nconst er_min  = er_vals.length ? Math.min(...er_vals) : 0;\nconst rango   = er_max - er_min || 0.001;\n\nfunction areaBoost(area) {\n  const er = erPorArea[(area || '').toLowerCase()];\n  if (er === undefined) return 1.0;\n  return 0.7 + ((er - er_min) / rango) * 0.8;\n}\n\n// Areas/tonos que Qwen recomienda potenciar\nconst areas_boost = (recom?.ajustes?.areas_boost || []).map(a => a.toLowerCase());\nconst areas_pen   = (recom?.ajustes?.areas_penalizar || []).map(a => a.toLowerCase());\nconst tonos_boost = (recom?.ajustes?.tonos_boost || []).map(t => t.toLowerCase());\n\nreturn temas_sheet\n  .filter(t => t.id && t.estado !== 'publicado')\n  .map(t => {\n    const area  = (t.area  || '').toLowerCase();\n    const tono  = (t.tono  || '').toLowerCase();\n    let score   = parseFloat(t.score || '1.0');\n\n    // Apply area performance factor\n    score *= areaBoost(area);\n\n    // Apply Qwen recommendations\n    if (areas_boost.includes(area)) score *= 1.3;\n    if (areas_pen.includes(area))   score *= 0.7;\n    if (tonos_boost.includes(tono)) score *= 1.15;\n\n    score = Math.min(Math.max(score, 0.2), 3.0);\n    return { json: { id: t.id, score: score.toFixed(2) } };\n  });\n"
+        "jsCode": "\n// Leer analytics data desde Parsear Recomendaciones (no desde $json que son filas de Sheet)\nconst recomData  = $('Parsear Recomendaciones').first().json;\nconst recom      = recomData.recom || {};\nconst areas_res  = recomData.areas_res || [];\nconst temas_sheet= $input.all().map(i => i.json);  // filas de Leer Temas Scores\n\n// Map de boost por área (normalizado 0.7 → 1.5)\nconst erPorArea = {};\nareas_res.forEach(r => { erPorArea[(r.key||'').toLowerCase()] = r.avg; });\nconst er_vals = areas_res.map(r => r.avg);\nconst er_max  = er_vals.length ? Math.max(...er_vals) : 1;\nconst er_min  = er_vals.length ? Math.min(...er_vals) : 0;\nconst rango   = er_max - er_min || 0.001;\n\nfunction areaBoost(area) {\n  const er = erPorArea[(area || '').toLowerCase()];\n  if (er === undefined) return 1.0;\n  return 0.7 + ((er - er_min) / rango) * 0.8;\n}\n\nconst areas_boost = (recom?.ajustes?.areas_boost    || []).map(a => a.toLowerCase());\nconst areas_pen   = (recom?.ajustes?.areas_penalizar || []).map(a => a.toLowerCase());\nconst tonos_boost = (recom?.ajustes?.tonos_boost     || []).map(t => t.toLowerCase());\n\nconst temas_actualizados = temas_sheet\n  .filter(t => t.id && t.estado !== 'publicado')\n  .map(t => {\n    const area  = (t.area  || '').toLowerCase();\n    const tono  = (t.tono  || '').toLowerCase();\n    let score   = parseFloat(t.score || '1.0');\n    score *= areaBoost(area);\n    if (areas_boost.includes(area)) score *= 1.3;\n    if (areas_pen.includes(area))   score *= 0.7;\n    if (tonos_boost.includes(tono)) score *= 1.15;\n    score = Math.min(Math.max(score, 0.2), 3.0);\n    return { json: { id: t.id, score: score.toFixed(2) } };\n  });\n\nif (!temas_actualizados.length) {\n  return [{ json: { _sin_temas: true, mensaje: 'No hay temas pendientes para actualizar scores' } }];\n}\nreturn temas_actualizados;\n"
       },
       "id": "eaa02078-1cd4-4aaf-845c-ddd5e09a46ed",
       "name": "Calcular Nuevos Scores",
@@ -265,7 +255,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst data    = $json;\nconst recom   = data.recom || {};\nconst areas   = (data.areas_res || []).slice(0, 5);\nconst tonos   = (data.tonos_res || []).slice(0, 4);\nconst out_pos = (data.outliers_pos || []).slice(0, 3);\nconst total   = data.total_metricas || 0;\nconst pendientes = data.temas_pendientes_count || 0;\n\nconst conclusion = recom?.conclusiones || {};\nconst proximas   = recom?.proximas_semanas || {};\nconst alerta     = recom?.alerta || '';\n\nconst areas_html = areas.map(r =>\n  `  • <b>${r.key}</b>: ER avg ${(r.avg * 100).toFixed(2)}%, mediana ${(r.median * 100).toFixed(2)}% (${r.count} posts)`\n).join('\\n');\n\nconst tonos_html = tonos.map(r =>\n  `  • ${r.key}: ${(r.avg * 100).toFixed(2)}% avg (${r.count} posts)`\n).join('\\n');\n\nconst out_html = out_pos.length\n  ? out_pos.map(p => `  🌟 ${p.tema} [${p.area}/${p.tono}]: ${(p.er * 100).toFixed(2)}% ER`).join('\\n')\n  : '  (ninguno con datos suficientes)';\n\nconst msg = [\n  `🔄 <b>[FEEDBACK] Ciclo de Aprendizaje Semanal</b>`,\n  ``,\n  `Posts analizados: ${total} | Temas pendientes: ${pendientes}`,\n  ``,\n  `<b>Rendimiento por área:</b>`,\n  areas_html || '  (sin datos)',\n  ``,\n  `<b>Rendimiento por tono:</b>`,\n  tonos_html || '  (sin datos)',\n  ``,\n  `<b>Posts estrella de la semana:</b>`,\n  out_html,\n  ``,\n  ...(conclusion.area_estrella ? [\n    `<b>Área estrella:</b> ${conclusion.area_estrella}`,\n    `<b>Tono ganador:</b> ${conclusion.tono_ganador || '?'}`,\n    `<b>Día óptimo:</b> ${conclusion.dia_optimo || '?'}`,\n    ``,\n    `<b>Patrón principal:</b>`,\n    conclusion.patron_principal || '...',\n    ``\n  ] : []),\n  ...(proximas.enfoque ? [\n    `<b>Enfoque próxima semana:</b> ${proximas.enfoque}`,\n    ...(proximas.evitar ? [`<b>Evitar:</b> ${proximas.evitar}`] : []),\n    ``\n  ] : []),\n  ...(alerta ? [`⚠️ <b>Alerta:</b> ${alerta}`, ``] : []),\n  `Scores actualizados en Sheet ✅`\n].join('\\n');\n\nreturn [{ json: { mensaje: msg, recom, areas_res: areas, tonos_res: tonos } }];\n"
+        "jsCode": "\n// Leer analytics data desde Parsear Recomendaciones (no desde $json = Sheet update response)\nconst data    = $('Parsear Recomendaciones').first().json;\nconst recom   = data.recom || {};\nconst areas   = (data.areas_res || []).slice(0, 5);\nconst tonos   = (data.tonos_res || []).slice(0, 4);\nconst out_pos = (data.outliers_pos || []).slice(0, 3);\nconst total   = data.total_metricas || 0;\nconst pendientes = data.temas_pendientes || data.temas_pendientes_count || 0;\n\nconst conclusion = recom?.conclusiones || {};\nconst proximas   = recom?.proximas_semanas || {};\nconst alerta     = recom?.alerta || '';\n\nconst areas_html = areas.length\n  ? areas.map(r => `  • <b>${r.key}</b>: ER avg ${(r.avg * 100).toFixed(2)}%, mediana ${(r.median * 100).toFixed(2)}% (${r.count} posts)`).join('\\n')\n  : '  (sin datos de áreas)';\n\nconst tonos_html = tonos.length\n  ? tonos.map(r => `  • ${r.key}: ${(r.avg * 100).toFixed(2)}% avg (${r.count} posts)`).join('\\n')\n  : '  (sin datos de tonos)';\n\n// FIX: usar engagement_rate en lugar de er (campo real del objeto)\nconst out_html = out_pos.length\n  ? out_pos.map(p => `  🌟 ${p.tema||'?'} [${p.area||'?'}/${p.tono||'?'}]: ${((p.engagement_rate||p.er||0) * 100).toFixed(2)}% ER`).join('\\n')\n  : '  (ninguno con datos suficientes)';\n\nconst msg = [\n  `🔄 <b>[FEEDBACK] Ciclo de Aprendizaje Semanal</b>`,\n  ``,\n  `Posts analizados: ${total} | Temas pendientes: ${pendientes}`,\n  ``,\n  `<b>Rendimiento por área:</b>`,\n  areas_html,\n  ``,\n  `<b>Rendimiento por tono:</b>`,\n  tonos_html,\n  ``,\n  `<b>Posts estrella de la semana:</b>`,\n  out_html,\n  ``,\n  ...(conclusion.area_estrella ? [\n    `<b>Área estrella:</b> ${conclusion.area_estrella}`,\n    `<b>Tono ganador:</b> ${conclusion.tono_ganador || '?'}`,\n    `<b>Día óptimo:</b> ${conclusion.dia_optimo || '?'}`,\n    ``,\n    `<b>Patrón principal:</b>`,\n    conclusion.patron_principal || '...',\n    ``\n  ] : []),\n  ...(proximas.enfoque ? [\n    `<b>Enfoque próxima semana:</b> ${proximas.enfoque}`,\n    ...(proximas.evitar ? [`<b>Evitar:</b> ${proximas.evitar}`] : []),\n    ``\n  ] : []),\n  ...(alerta ? [`⚠️ <b>Alerta:</b> ${alerta}`, ``] : []),\n  `Scores actualizados en Sheet ✅`\n].join('\\n');\n\nreturn [{ json: { mensaje: msg, recom, areas_res: areas, tonos_res: tonos } }];\n"
       },
       "id": "c2512ff5-4738-4bff-8db3-a6db1834e5bd",
       "name": "Preparar Informe Feedback",
