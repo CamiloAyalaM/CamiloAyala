@@ -3,31 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "pollTimes": {
-          "item": [{ "mode": "everyMinute" }]
-        },
-        "triggerOn": "fileCreated",
-        "filters": {},
-        "folderId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "1_I_RkaFHP92q865kkRsTYkXgU_tzBqbp"
-        }
-      },
-      "id": "trigger-gdrive",
-      "name": "Drive — Nuevo Informe XLSX",
-      "type": "n8n-nodes-base.googleDriveTrigger",
-      "typeVersion": 1,
-      "position": [0, 0],
-      "credentials": {
-        "googleDriveOAuth2Api": {
-          "id": "GOOGLE_DRIVE_CRED_ID",
-          "name": "Google Drive account"
-        }
-      }
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
         "path": "ma-reporter-manual",
         "responseMode": "lastNode",
@@ -42,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Unifica trigger automático (Drive) y manual (Webhook)\n// El trigger de Drive entrega: id, name, mimeType\n// El webhook manual puede enviar: { file_id, file_name } en body\nconst fromDrive   = $('Drive — Nuevo Informe XLSX').first?.()?.json;\nconst fromWebhook = $('Webhook Manual REPORTER').first?.()?.json;\n\nconst src = fromDrive?.id ? fromDrive : (fromWebhook?.body || fromWebhook || {});\n\nconst fileId   = src.id   || src.file_id   || null;\nconst fileName = src.name || src.file_name || 'informe.xlsx';\n\nif (!fileId) throw new Error('No se recibió file_id. Asegúrate de pasar { file_id, file_name } en el body del webhook manual.');\n\n// Extraer post_id numérico del nombre del archivo\n// Formato: PostAnalytics_NombreAutor_7430670067249340417.xlsx\nconst match = fileName.match(/(\\d{10,22})(?:\\.[a-z]+)?$/);\nconst postId = match ? match[1] : null;\n\nreturn [{ json: { fileId, fileName, postId } }];"
+        "jsCode": "// Lee el body del webhook: { file_id, file_name }\n// Enviado por el Drive Watcher o manualmente vía Telegram /reportes\nconst body = $input.first().json.body || $input.first().json;\n\nconst fileId   = body.file_id   || body.id   || null;\nconst fileName = body.file_name || body.name || 'informe.xlsx';\n\nif (!fileId) throw new Error('Falta file_id en el body. El Drive Watcher debe enviar { file_id, file_name }.');\n\n// Extraer post_id del nombre: PostAnalytics_Nombre_7430670067249340417.xlsx\nconst match = fileName.match(/(\\d{10,22})(?:\\.[a-z]+)?$/);\nconst postId = match ? match[1] : null;\n\nreturn [{ json: { fileId, fileName, postId } }];"
       },
       "id": "unify-trigger",
       "name": "Unificar Trigger",
@@ -326,9 +301,6 @@
     }
   ],
   "connections": {
-    "Drive — Nuevo Informe XLSX": {
-      "main": [[{ "node": "Unificar Trigger", "type": "main", "index": 0 }]]
-    },
     "Webhook Manual REPORTER": {
       "main": [[
         { "node": "ACK Webhook",      "type": "main", "index": 0 },
