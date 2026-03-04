@@ -1,0 +1,66 @@
+{
+  "name": "[MA] REPORTER — Drive Watcher",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "triggerOn": "fileCreated",
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1_I_RkaFHP92q865kkRsTYkXgU_tzBqbp"
+        },
+        "options": {
+          "fileType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      },
+      "id": "drive-trigger",
+      "name": "Drive — Nuevo XLSX en LinkedIn Reports",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "GOOGLE_DRIVE_CRED_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.camiloayala.net/webhook/ma-reporter-manual",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ file_id: $json.id, file_name: $json.name }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "call-reporter",
+      "name": "Llamar REPORTER webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "Drive — Nuevo XLSX en LinkedIn Reports": {
+      "main": [[{ "node": "Llamar REPORTER webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "meta": {
+    "instanceId": "ma-reporter-drive-watcher"
+  }
+}
