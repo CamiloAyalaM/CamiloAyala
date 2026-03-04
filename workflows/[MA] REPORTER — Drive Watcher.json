@@ -29,7 +29,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://n8n.camiloayala.net/webhook/ma-reporter-manual",
+        "url": "https://n8n.camiloayala.net/webhook/ma-reporter-indexador",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ file_id: $json.id, file_name: $json.name }) }}",
