@@ -176,7 +176,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst data = $json;\nif (data._sin_metricas) return [];\n// Solo guarda posts que tengan engagement_rate > 0 o datos reales de LinkedIn API\nreturn (data.metricas || [])\n  .filter(m => m.engagement_rate > 0 || m.fuente_stats === 'linkedin_api')\n  .map(m => ({ json: m }));\n"
+        "jsCode": "\nconst data = $json;\nif (data._sin_metricas) return [];\n// Guarda todos los posts publicados para que FEEDBACK tenga registros.\n// El filtro anterior (solo ER>0) dejaba Metricas Sheet vacío cuando la API no retorna datos.\nreturn (data.metricas || []).map(m => ({ json: m }));\n"
       },
       "id": "8a07ae55-f191-4cbc-b192-409d2cf8b6d7",
       "name": "Preparar para Append",
