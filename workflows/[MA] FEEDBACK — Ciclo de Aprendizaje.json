@@ -141,7 +141,8 @@
               "role": "system"
             },
             {
-              "content": "=Analiza estas correlaciones de rendimiento y genera recomendaciones:\n\n{{ $json.texto_correlaciones }}"
+              "content": "=Analiza estas correlaciones de rendimiento y genera recomendaciones:\n\n{{ $json.texto_correlaciones }}",
+              "role": "user"
             }
           ]
         },
