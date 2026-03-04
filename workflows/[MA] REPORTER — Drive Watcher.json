@@ -6,6 +6,7 @@
         "pollTimes": {
           "item": [{ "mode": "everyMinute" }]
         },
+        "triggerOn": "fileCreated",
         "event": "fileCreated",
         "folderId": {
           "__rl": true,
@@ -16,7 +17,7 @@
       "id": "drive-trigger",
       "name": "Drive — Nuevo XLSX en LinkedIn Reports",
       "type": "n8n-nodes-base.googleDriveTrigger",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "position": [0, 0],
       "credentials": {
         "googleDriveOAuth2Api": {
