@@ -417,7 +417,7 @@
     {
       "parameters": {
         "chatId": "1160149765",
-        "text": "={{ $json.mensaje }}",
+        "text": "={{ $('Preparar Informe').first().json.mensaje }}",
         "additionalFields": {
           "parse_mode": "HTML"
         }
@@ -584,6 +584,11 @@
             "node": "Leer Temas para Scores",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Preparar Informe",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -604,17 +609,6 @@
         [
           {
             "node": "Update Scores Sheet",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Scores Sheet": {
-      "main": [
-        [
-          {
-            "node": "Preparar Informe",
             "type": "main",
             "index": 0
           }
