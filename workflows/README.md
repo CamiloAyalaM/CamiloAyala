@@ -49,6 +49,9 @@ PASS 3: 🧹 Agente Humanizador (Qwen 0.4) → Elimina IA
 - IDEO Journal: https://ideo.com/journal.rss
 - Medium Design Education: https://medium.com/feed/tag/design-education
 
+> **v2.1 fixes (2026-03-04):** Corregida race condition en el flujo de descubrimiento,
+> cron actualizado a diario 06:00 AM, y parseo robusto de bloques `<think>` de Qwen.
+
 Usa **Jina Reader** (r.jina.ai) para extraer texto limpio de cada artículo.
 
 ## ANALYST v2 — Métricas sin Apify
