@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "ma-reporter-manual",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "webhook-manual",
