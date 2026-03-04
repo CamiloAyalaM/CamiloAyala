@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - claude/n8n-automation-Vv3sM
     paths:
       - 'workflows/**'
   workflow_dispatch:
