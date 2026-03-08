@@ -200,7 +200,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Agente Analista vacío');\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet o;\ntry { o = JSON.parse(s); } catch(e) { const m=s.match(/\\{[\\s\\S]*\\}/); if(!m) throw new Error('Sin JSON en Analista: '+s.substring(0,200)); o=JSON.parse(m[0]); }\nconst pts = (o.puntos_desarrollo||[]).join('\\n→ ');\nconst proh = (o.palabras_prohibidas_contexto||[]).join(', ');\nconst inj = `TENSIÓN: ${o.tension||''}\\nEJEMPLO CONCRETO: ${o.ejemplo_concreto||''}\\nCREENCIA A CONTRADECIR: ${o.creencia_a_contradecir||''}\\nPOSTURA FINAL: ${o.postura_central||''}\\nGANCHO (usa este inicio exacto): ${o.gancho||''}\\nPUNTOS A DESARROLLAR:\\n→ ${pts}\\nPALABRAS PROHIBIDAS EN ESTE POST: ${proh}`;\nreturn [{ json: { ...$('Combinar Contexto').first().json, outline: o, outline_injection: inj } }];\n"
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Agente Analista vacío');\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet o;\ntry { o = JSON.parse(s); } catch(e) { const m=s.match(/\\{[\\s\\S]*\\}/); if(!m) throw new Error('Sin JSON en Analista: '+s.substring(0,200)); o=JSON.parse(m[0]); }\nconst pts = (o.puntos_desarrollo||[]).join('\\n→ ');\nconst proh = (o.palabras_prohibidas_contexto||[]).join(', ');\nconst inj = `El post debe explorar: ${o.tension||''}\\nTu postura en este post: ${o.postura_central||''}\\nEmpieza con algo como esto (no lo copies exacto, adáptalo a tu voz): \"${o.gancho||\\'\\'}\"\\nDesarrolla estos ángulos en párrafos corridos, NO como lista:\\n${(o.puntos_desarrollo||[]).map(p=>'— '+p).join('\\n')}\\n${o.ejemplo_concreto ? 'Ejemplo o anécdota concreta si tienes una: '+o.ejemplo_concreto : ''}\\n${proh ? 'Palabras a evitar en este post: '+proh : ''}`;\nreturn [{ json: { ...$('Combinar Contexto').first().json, outline: o, outline_injection: inj } }];\n"
       },
       "id": "ab80acd4-0323-40a2-9c66-308dc292de2c",
       "name": "Parsear Outline",
@@ -217,7 +217,7 @@
         "url": "http://10.10.10.100:11434/api/chat",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.75, messages: [{ role: 'system', content: $('System Prompt').first().json.system_prompt }, { role: 'user', content: 'Escribe el post completo de LinkedIn basándote en este outline del Analista. Devuelve JSON con: post_text (el post completo, 1800-2500 chars), hook_type, imagen_descripcion, hashtags (array de 4-5).\\n\\n' + $json.outline_injection }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen2.5:32b', stream: false, temperature: 0.75, messages: [{ role: 'system', content: $('System Prompt').first().json.system_prompt }, { role: 'user', content: 'Escribe el post de LinkedIn en primera persona como Camilo. NO sigas el outline como si fuera una plantilla — úsalo como materia prima para escribir con tu voz, como si pensaras en voz alta. El resultado no debe parecerse a un formulario rellenado. Devuelve JSON: post_text (1800-2500 chars), hook_type, imagen_descripcion, hashtags (array de 4).\\n\\n' + $json.outline_injection + ($json.ejemplos_humanizador || '') }] }) }}",
         "options": {
           "response": {
             "response": {
@@ -390,7 +390,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $json;\nconst txt = (d.post_text||'');\nconst preview_text = txt.length > 600 ? txt.substring(0,597)+'...' : txt;\nconst hashtags = (d.hashtags||[]).join(' ');\nconst score = d.calidad_score||0;\nconst label = d.calidad_label||'';\nconst chars = d.caracteres || txt.length;\nconst outline = d.outline||{};\n\nfunction esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }\n\nconst caption = [\n  `📝 <b>${esc(d.tema||'').substring(0,60)}</b>`,\n  `Calidad: ${score}/100 ${label} · ${chars} chars`,\n  ``,\n  `─── TENSIÓN (Analista) ───`,\n  esc((outline.tension||'').substring(0,120)),\n  ``,\n  `─── INICIO DEL POST ───`,\n  esc(preview_text.split('\\n\\n')[0]||''),\n  ``,\n  `─── PREVIEW ───`,\n  esc(preview_text.substring(0,400)),\n  ``,\n  hashtags\n].join('\\n');\n\nconst keyboard = {\n  inline_keyboard: [\n    [\n      { text: '✅ Publicar', callback_data: `v2|aprobar|${d.id}` },\n      { text: '📝 Solo texto', callback_data: `v2|solo_texto|${d.id}` }\n    ],\n    [\n      { text: '🔄 Regenerar', callback_data: `v2|regenerar|${d.id}` },\n      { text: '❌ Rechazar', callback_data: `v2|rechazar|${d.id}` }\n    ]\n  ]\n};\n\nconst tg_keyboard_str = JSON.stringify(keyboard);\nreturn [{ json: { ...d, tg_caption: caption, tg_keyboard: keyboard, tg_keyboard_str } }];\n"
+        "jsCode": "\nconst d = $json;\nconst txt = (d.post_text||'');\nconst hashtags = (d.hashtags||[]).join(' ');\nconst score = d.calidad_score||0;\nconst label = d.calidad_label||'';\nconst chars = d.caracteres || txt.length;\n\nfunction esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }\n\n// Cabecera: ~80 chars. Post preview: rellena el resto hasta 1020 chars.\nconst header = `📝 <b>${esc((d.tema||'').substring(0,75))}</b>\\nCalidad: ${score}/100 ${label} · ${chars} chars\\n`;\nconst footer = '\\n' + hashtags;\nconst maxPost = 1020 - header.length - footer.length;\nconst postPreview = esc(txt.length > maxPost ? txt.substring(0, maxPost-3)+'...' : txt);\n\nconst caption = header + postPreview + footer;\n\nconst keyboard = {\n  inline_keyboard: [\n    [\n      { text: '✅ Publicar', callback_data: `v2|aprobar|${d.id}` },\n      { text: '📝 Solo texto', callback_data: `v2|solo_texto|${d.id}` }\n    ],\n    [\n      { text: '🔄 Regenerar', callback_data: `v2|regenerar|${d.id}` },\n      { text: '❌ Rechazar', callback_data: `v2|rechazar|${d.id}` }\n    ]\n  ]\n};\n\nconst tg_keyboard_str = JSON.stringify(keyboard);\nreturn [{ json: { ...d, tg_caption: caption, tg_keyboard: keyboard, tg_keyboard_str } }];\n"
       },
       "id": "bf623221-efdb-4ef9-b642-1e6d2aaf19b7",
       "name": "Preparar Preview TG",
@@ -620,7 +620,12 @@
           "values": [
             {
               "conditions": {
-                "options": {},
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
                   {
                     "id": "b83fef91-3964-49ff-bf1a-226444f7091c",
@@ -631,12 +636,18 @@
                     },
                     "rightValue": "aprobar"
                   }
-                ]
+                ],
+                "combinator": "and"
               }
             },
             {
               "conditions": {
-                "options": {},
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
                   {
                     "id": "3ef60045-71ae-4534-8015-33f9402176cb",
@@ -647,12 +658,18 @@
                     },
                     "rightValue": "rechazar"
                   }
-                ]
+                ],
+                "combinator": "and"
               }
             },
             {
               "conditions": {
-                "options": {},
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
                   {
                     "id": "solo-texto-rule-001",
@@ -663,7 +680,30 @@
                     },
                     "rightValue": "solo_texto"
                   }
-                ]
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "regenerar-rule-001",
+                    "leftValue": "={{ $('Parsear Callback').first().json.accion }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "regenerar"
+                  }
+                ],
+                "combinator": "and"
               }
             }
           ]
@@ -726,7 +766,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $json;\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: {\n    'com.linkedin.ugc.ShareContent': {\n      shareCommentary: { text: d.post_text || '' },\n      shareMediaCategory: 'NONE'\n    }\n  },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+        "jsCode": "\nconst d = $json;\nconst accion = d.accion || '';\nconst imagen_url = d.imagen_url || '';\n\n// Si la acción es 'aprobar' y hay imagen, publicar como ARTICLE (muestra imagen como preview)\n// Si es 'solo_texto' o no hay imagen, publicar como texto puro\nlet shareContent;\nif (accion === 'aprobar' && imagen_url && imagen_url.startsWith('http')) {\n  shareContent = {\n    shareCommentary: { text: d.post_text || '' },\n    shareMediaCategory: 'ARTICLE',\n    media: [{\n      status: 'READY',\n      description: { text: '' },\n      originalUrl: imagen_url,\n      title: { text: '' }\n    }]\n  };\n} else {\n  shareContent = {\n    shareCommentary: { text: d.post_text || '' },\n    shareMediaCategory: 'NONE'\n  };\n}\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
       },
       "id": "80fd7b98-1106-4597-b18d-84feffc1104e",
       "name": "Preparar LinkedIn Body",
@@ -926,6 +966,47 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "chatId": "1160149765",
+        "text": "🔄 <b>Generando variante...</b>\n\nEn ~2 minutos llega un nuevo post para aprobación.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "notificar-regenerar-001",
+      "name": "Notificar Regenerar",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [928, 2480],
+      "credentials": {
+        "telegramApi": {
+          "id": "gR2WcHsnoq4oIAuT",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/ma-writer-manual",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"trigger\": \"regenerar\"}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "llamar-writer-regenerar-001",
+      "name": "Llamar WRITER Regenerar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1184, 2480]
     }
   ],
   "pinData": {},
@@ -1251,6 +1332,24 @@
         [
           {
             "node": "Leer Temas Aprobacion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar Regenerar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar Regenerar": {
+      "main": [
+        [
+          {
+            "node": "Llamar WRITER Regenerar",
             "type": "main",
             "index": 0
           }
