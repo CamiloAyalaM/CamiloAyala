@@ -3,26 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "cronExpression",
-              "expression": "0 14 * * 1,3,5"
-            }
-          ]
-        }
-      },
-      "id": "cf1f5d38-c19f-427a-bb8b-26ebf16fee4c",
-      "name": "Trigger Diario",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.1,
-      "position": [
-        -640,
-        1168
-      ]
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
         "path": "ma-writer-manual",
         "options": {}
@@ -950,27 +930,6 @@
   ],
   "pinData": {},
   "connections": {
-    "Trigger Diario": {
-      "main": [
-        [
-          {
-            "node": "Leer Temas",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Leer Metricas",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Leer Rechazos",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Webhook Manual": {
       "main": [
         [
