@@ -766,7 +766,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $('Encontrar Post Guardado').first().json;\nconst registerData = $('Registrar Upload LinkedIn').first().json;\nconst assetUrn = registerData.value.asset;\n\nconst shareContent = {\n  shareCommentary: { text: d.post_text || '' },\n  shareMediaCategory: 'IMAGE',\n  media: [{\n    status: 'READY',\n    description: { text: '' },\n    media: assetUrn,\n    title: { text: '' }\n  }]\n};\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\n\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+        "jsCode": "\nconst d = $('Encontrar Post Guardado').first().json;\nconst registerData = $('Registrar Upload LinkedIn').first().json;\nconst assetUrn = registerData.value.asset;\n\nconst hashtags = Array.isArray(d.hashtags) ? d.hashtags.join(' ') : (d.hashtags || '');\nconst credit = d.imagen_credit || '';\nconst parts = [d.post_text || ''];\nif (hashtags) parts.push(hashtags);\nif (credit) parts.push(credit);\nconst fullText = parts.join('\\n\\n');\n\nconst shareContent = {\n  shareCommentary: { text: fullText },\n  shareMediaCategory: 'IMAGE',\n  media: [{\n    status: 'READY',\n    description: { text: '' },\n    media: assetUrn,\n    title: { text: '' }\n  }]\n};\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\n\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
       },
       "id": "80fd7b98-1106-4597-b18d-84feffc1104e",
       "name": "Preparar LinkedIn Body",
@@ -1148,7 +1148,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $json;\nconst shareContent = {\n  shareCommentary: { text: d.post_text || '' },\n  shareMediaCategory: 'NONE'\n};\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+        "jsCode": "\nconst d = $json;\n\nconst hashtags = Array.isArray(d.hashtags) ? d.hashtags.join(' ') : (d.hashtags || '');\nconst credit = d.imagen_credit || '';\nconst parts = [d.post_text || ''];\nif (hashtags) parts.push(hashtags);\nif (credit) parts.push(credit);\nconst fullText = parts.join('\\n\\n');\n\nconst shareContent = {\n  shareCommentary: { text: fullText },\n  shareMediaCategory: 'NONE'\n};\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
       },
       "id": "code-preparar-body-sin-imagen-001",
       "name": "Preparar LinkedIn Body Sin Imagen",
