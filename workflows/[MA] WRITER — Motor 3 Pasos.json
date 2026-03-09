@@ -377,7 +377,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst prev = $('Seleccionar Imagen').first().json;\nconst resp = $json;\n\nlet img_url = '';\nlet img_credit = '';\n\n// /search/photos returns { results: [...], total, total_pages }\n// Pick randomly among the top results to avoid always the same photo\nif (resp.results && resp.results.length > 0) {\n  const pick = resp.results[Math.floor(Math.random() * resp.results.length)];\n  img_url = pick.urls?.regular || pick.urls?.full || pick.urls?.small || '';\n  if (img_url) {\n    const name = pick.user?.name || pick.user?.username || 'Unsplash';\n    const username = pick.user?.username ? '@' + pick.user.username : '';\n    img_credit = '📷  ' + name + (username ? ' [' + username + ']' : '') + ', Unsplash';\n  }\n}\n\nif (!img_url || img_url.length < 10) {\n  const seed = (prev.id || 'content') + Date.now().toString(36);\n  img_url = 'https://picsum.photos/seed/' + seed + '/1200/628';\n  img_credit = 'Foto de Unsplash';\n}\n\nreturn [{ json: {\n  ...prev,\n  imagen_url: img_url,\n  imagen_credit: img_credit\n} }];\n"
+        "jsCode": "\nconst prev = $('Seleccionar Imagen').first().json;\nconst resp = $json;\n\nlet img_url = '';\nlet img_credit = '';\n\n// /search/photos returns { results: [...], total, total_pages }\n// Pick randomly among the top results to avoid always the same photo\nif (resp.results && resp.results.length > 0) {\n  const pick = resp.results[Math.floor(Math.random() * resp.results.length)];\n  img_url = pick.urls?.regular || pick.urls?.full || pick.urls?.small || '';\n  if (img_url) {\n    const name = pick.user?.name || pick.user?.username || 'Unsplash';\n    const username = pick.user?.username ? '@' + pick.user.username : '';\n    img_credit = '📷  ' + name + (username ? ' [' + username + ']' : '') + ', Unsplash';\n  }\n}\n\nif (!img_url || img_url.length < 10) {\n  const seed = (prev.id || 'content') + Date.now().toString(36);\n  img_url = 'https://picsum.photos/seed/' + seed + '/1200/628';\n  img_credit = '📷  Unsplash';\n}\n\nreturn [{ json: {\n  ...prev,\n  imagen_url: img_url,\n  imagen_credit: img_credit\n} }];\n"
       },
       "id": "0eb8ca78-9928-46fd-a84c-1008db85fd26",
       "name": "Preparar Imagen Final",
@@ -420,6 +420,7 @@
           "value": {
             "id": "={{ $('Preparar Preview TG').first().json.id }}",
             "post_text": "={{ $('Preparar Preview TG').first().json.post_text }}",
+            "hashtags": "={{ Array.isArray($('Preparar Preview TG').first().json.hashtags) ? $('Preparar Preview TG').first().json.hashtags.join(' ') : ($('Preparar Preview TG').first().json.hashtags || '') }}",
             "imagen_url": "={{ $('Preparar Preview TG').first().json.imagen_url }}",
             "imagen_credit": "={{ $('Preparar Preview TG').first().json.imagen_credit }}",
             "estado": "esperando_v2",
