@@ -766,15 +766,15 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $json;\nconst accion = d.accion || '';\nconst imagen_url = d.imagen_url || '';\n\n// Si la acción es 'aprobar' y hay imagen, publicar como ARTICLE (muestra imagen como preview)\n// Si es 'solo_texto' o no hay imagen, publicar como texto puro\nlet shareContent;\nif (accion === 'aprobar' && imagen_url && imagen_url.startsWith('http')) {\n  shareContent = {\n    shareCommentary: { text: d.post_text || '' },\n    shareMediaCategory: 'ARTICLE',\n    media: [{\n      status: 'READY',\n      description: { text: '' },\n      originalUrl: imagen_url,\n      title: { text: '' }\n    }]\n  };\n} else {\n  shareContent = {\n    shareCommentary: { text: d.post_text || '' },\n    shareMediaCategory: 'NONE'\n  };\n}\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+        "jsCode": "\nconst d = $('Encontrar Post Guardado').first().json;\nconst registerData = $('Registrar Upload LinkedIn').first().json;\nconst assetUrn = registerData.value.asset;\n\nconst shareContent = {\n  shareCommentary: { text: d.post_text || '' },\n  shareMediaCategory: 'IMAGE',\n  media: [{\n    status: 'READY',\n    description: { text: '' },\n    media: assetUrn,\n    title: { text: '' }\n  }]\n};\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\n\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
       },
       "id": "80fd7b98-1106-4597-b18d-84feffc1104e",
       "name": "Preparar LinkedIn Body",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1440,
-        2032
+        2300,
+        1820
       ]
     },
     {
@@ -814,7 +814,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1712,
+        2540,
         2032
       ]
     },
@@ -827,7 +827,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1968,
+        2780,
         2032
       ]
     },
@@ -979,7 +979,10 @@
       "name": "Notificar Regenerar",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [928, 2480],
+      "position": [
+        928,
+        2480
+      ],
       "credentials": {
         "telegramApi": {
           "id": "gR2WcHsnoq4oIAuT",
@@ -1006,7 +1009,155 @@
       "name": "Llamar WRITER Regenerar",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1184, 2480]
+      "position": [
+        1184,
+        2480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "cond-accion-aprobar",
+              "leftValue": "={{ $json.accion }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "aprobar"
+            },
+            {
+              "id": "cond-imagen-url-nonempty",
+              "leftValue": "={{ $json.imagen_url }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-tiene-imagen-lkd-001",
+      "name": "¿Tiene Imagen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/v2/assets?action=registerUpload",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer AQX4602Cp2_JLd_glMVPNpm6K5v4rDQu3XkjPOm_TaMR_g6GRWMoOFGN2v-W_2maK097MGg2-AqC8JABRtx37sizo4Qmi3mscJRMK1ui6IR-_05wno8JgbKbxh8qPflZeQ-XN_62NIidxriOsgpxvNSyOacP97nwctwC0hSqyYNOodbd9TmimdXD0L-4ejSrfUeFzxOx3lU6THw41B4Rs6ud26XCxP-POy-sY0ppDiEiqxSkOsTwgTTTCaFWu1VumEQymVnADUj75vU9YHemJCztRj_fi-nubJugPnAf1aUMZ8YjAMQ6mwNxpgzDcSoHcRgVfXE7UXfDs3fUyqfD6NX6rHkEwQ"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"registerUploadRequest\": {\"recipes\": [\"urn:li:digitalmediaRecipe:feedshare-image\"], \"owner\": \"urn:li:person:jAuei1KlC1\", \"serviceRelationships\": [{\"relationshipType\": \"OWNER\", \"identifier\": \"urn:li:userGeneratedContent\"}]}}",
+        "options": {}
+      },
+      "id": "http-registrar-upload-lkd-001",
+      "name": "Registrar Upload LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1640,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Encontrar Post Guardado').first().json.imagen_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "http-descargar-imagen-lkd-001",
+      "name": "Descargar Imagen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Registrar Upload LinkedIn').first().json.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer AQX4602Cp2_JLd_glMVPNpm6K5v4rDQu3XkjPOm_TaMR_g6GRWMoOFGN2v-W_2maK097MGg2-AqC8JABRtx37sizo4Qmi3mscJRMK1ui6IR-_05wno8JgbKbxh8qPflZeQ-XN_62NIidxriOsgpxvNSyOacP97nwctwC0hSqyYNOodbd9TmimdXD0L-4ejSrfUeFzxOx3lU6THw41B4Rs6ud26XCxP-POy-sY0ppDiEiqxSkOsTwgTTTCaFWu1VumEQymVnADUj75vU9YHemJCztRj_fi-nubJugPnAf1aUMZ8YjAMQ6mwNxpgzDcSoHcRgVfXE7UXfDs3fUyqfD6NX6rHkEwQ"
+            },
+            {
+              "name": "Content-Type",
+              "value": "={{ $binary.data.mimeType || 'image/jpeg' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "http-subir-imagen-lkd-001",
+      "name": "Subir Imagen LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst d = $json;\nconst shareContent = {\n  shareCommentary: { text: d.post_text || '' },\n  shareMediaCategory: 'NONE'\n};\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+      },
+      "id": "code-preparar-body-sin-imagen-001",
+      "name": "Preparar LinkedIn Body Sin Imagen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        2250
+      ]
     }
   ],
   "pinData": {},
@@ -1371,7 +1522,7 @@
       "main": [
         [
           {
-            "node": "Preparar LinkedIn Body",
+            "node": "¿Tiene Imagen?",
             "type": "main",
             "index": 0
           }
@@ -1449,6 +1600,68 @@
         [
           {
             "node": "Guardar Post Pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Tiene Imagen?": {
+      "main": [
+        [
+          {
+            "node": "Registrar Upload LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar LinkedIn Body Sin Imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Upload LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Descargar Imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar Imagen": {
+      "main": [
+        [
+          {
+            "node": "Subir Imagen LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir Imagen LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Preparar LinkedIn Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar LinkedIn Body Sin Imagen": {
+      "main": [
+        [
+          {
+            "node": "Publicar LinkedIn",
             "type": "main",
             "index": 0
           }
