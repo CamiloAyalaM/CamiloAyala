@@ -769,7 +769,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $('Encontrar Post Guardado').first().json;\nconst registerData = $('Registrar Upload LinkedIn').first().json;\nconst assetUrn = registerData.value.asset;\n\nconst credit = d.imagen_credit || '';\nconst parts = [d.post_text || ''];\nif (credit) parts.push(credit);\nconst fullText = parts.join('\\n\\n');\n\nconst shareContent = {\n  shareCommentary: { text: fullText },\n  shareMediaCategory: 'IMAGE',\n  media: [{\n    status: 'READY',\n    description: { text: '' },\n    media: assetUrn,\n    title: { text: '' }\n  }]\n};\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\n\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+        "jsCode": "\nconst d = $('Encontrar Post Guardado').first().json;\nconst registerData = $('Registrar Upload LinkedIn').first().json;\nconst assetUrn = registerData?.value?.asset || null;\nif (!assetUrn) throw new Error('LinkedIn image upload no devolvió asset URN. Response: ' + JSON.stringify(registerData).substring(0, 200));\n\nconst credit = d.imagen_credit || '';\nconst parts = [d.post_text || ''];\nif (credit) parts.push(credit);\nconst fullText = parts.join('\\n\\n');\n\nconst shareContent = {\n  shareCommentary: { text: fullText },\n  shareMediaCategory: 'IMAGE',\n  media: [{\n    status: 'READY',\n    description: { text: '' },\n    media: assetUrn,\n    title: { text: '' }\n  }]\n};\n\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\n\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
       },
       "id": "80fd7b98-1106-4597-b18d-84feffc1104e",
       "name": "Preparar LinkedIn Body",
@@ -823,7 +823,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst resp = $json;\nconst status = resp.statusCode || resp.status || 200;\nconst post_id = resp.id || resp.headers?.['x-restli-id'] || 'unknown';\nif (status >= 400) throw new Error('LinkedIn error '+status+': '+JSON.stringify(resp).substring(0,300));\nconst prev = $('Preparar LinkedIn Body').first().json;\nreturn [{ json: { ...prev, post_id, linkedin_status: status, publicado_en: new Date().toISOString() } }];\n"
+        "jsCode": "\nconst resp = $json;\nconst status = resp.statusCode || resp.status || 200;\nconst post_id = resp.id || resp.headers?.['x-restli-id'] || 'unknown';\nif (status >= 400) throw new Error('LinkedIn error ' + status + ': ' + JSON.stringify(resp).substring(0, 300));\n\n// Preparar LinkedIn Body solo existe en el path CON imagen.\n// En el path sin imagen, existe solo Preparar LinkedIn Body Sin Imagen.\n// Usamos el que haya ejecutado en esta instancia.\nlet prev = {};\ntry { prev = $('Preparar LinkedIn Body').first().json; } catch(e) {}\nif (!prev || !prev.post_text) {\n  try { prev = $('Preparar LinkedIn Body Sin Imagen').first().json; } catch(e) {}\n}\nif (!prev) prev = {};\n\nreturn [{ json: { ...prev, post_id, linkedin_status: status, publicado_en: new Date().toISOString() } }];\n"
       },
       "id": "b77c1ce7-adab-4c73-8ddd-f6bc835b27d1",
       "name": "Validar LinkedIn",
