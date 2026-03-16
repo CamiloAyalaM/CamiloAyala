@@ -1148,7 +1148,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst d = $json;\n\nconst credit = d.imagen_credit || '';\nconst parts = [d.post_text || ''];\nif (credit) parts.push(credit);\nconst fullText = parts.join('\\n\\n');\n\nconst shareContent = {\n  shareCommentary: { text: fullText },\n  shareMediaCategory: 'NONE'\n};\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
+        "jsCode": "\nconst d = $json;\n\nconst fullText = (d.post_text || '').trim();\n\nconst shareContent = {\n  shareCommentary: { text: fullText },\n  shareMediaCategory: 'NONE'\n};\nconst body = {\n  author: 'urn:li:person:jAuei1KlC1',\n  lifecycleState: 'PUBLISHED',\n  specificContent: { 'com.linkedin.ugc.ShareContent': shareContent },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n};\nreturn [{ json: { ...d, linkedin_body: JSON.stringify(body) } }];\n"
       },
       "id": "code-preparar-body-sin-imagen-001",
       "name": "Preparar LinkedIn Body Sin Imagen",
