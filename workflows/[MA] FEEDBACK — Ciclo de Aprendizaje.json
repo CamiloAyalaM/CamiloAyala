@@ -137,7 +137,8 @@
             "response": {
               "neverError": true
             }
-          }
+          },
+          "timeout": 180000
         }
       },
       "id": "dc24d5d6-3112-4b2d-9074-37355e271c40",
@@ -153,7 +154,8 @@
           "id": "S4LeOiFztrgDaMM9",
           "name": "Ollama"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
