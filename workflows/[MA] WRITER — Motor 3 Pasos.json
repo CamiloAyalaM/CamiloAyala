@@ -196,11 +196,12 @@
       "position": [
         1184,
         1472
-      ]
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Agente Analista vacío');\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet o;\ntry { o = JSON.parse(s); } catch(e) { const m=s.match(/\\{[\\s\\S]*\\}/); if(!m) throw new Error('Sin JSON en Analista: '+s.substring(0,200)); o=JSON.parse(m[0]); }\nconst pts = (o.puntos_desarrollo||[]).join('\\n→ ');\nconst proh = (o.palabras_prohibidas_contexto||[]).join(', ');\nconst inj = `El post debe explorar: ${o.tension||''}\\nTu postura en este post: ${o.postura_central||''}\\nEmpieza con algo como esto (no lo copies exacto, adáptalo a tu voz): \"${o.gancho||''}\"\\nDesarrolla estos ángulos en párrafos corridos, NO como lista:\\n${(o.puntos_desarrollo||[]).map(p=>'— '+p).join('\\n')}\\n${o.ejemplo_concreto ? 'Ejemplo o anécdota concreta si tienes una: '+o.ejemplo_concreto : ''}\\n${proh ? 'Palabras a evitar en este post: '+proh : ''}`;\nreturn [{ json: { ...$('Combinar Contexto').first().json, outline: o, outline_injection: inj } }];\n"
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\n\n// Agent failed or returned empty — return sentinel so Validar Calidad catches it\nif (!raw || raw.trim().length < 10) {\n  const base = $('Combinar Contexto').first().json;\n  return [{ json: {\n    ...base,\n    outline: {},\n    outline_injection: '',\n    _agent_error: 'Agente Analista no respondió (Ollama caído o timeout)'\n  }}];\n}\n\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet o;\ntry { o = JSON.parse(s); } catch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/);\n  if (!m) {\n    const base = $('Combinar Contexto').first().json;\n    return [{ json: { ...base, outline: {}, outline_injection: '', _agent_error: 'Analista JSON inválido: ' + s.substring(0,100) } }];\n  }\n  o = JSON.parse(m[0]);\n}\nconst pts = (o.puntos_desarrollo||[]).join('\\n→ ');\nconst proh = (o.palabras_prohibidas_contexto||[]).join(', ');\nconst inj = `El post debe explorar: ${o.tension||''}\\nTu postura en este post: ${o.postura_central||''}\\nEmpieza con algo como esto (no lo copies exacto, adáptalo a tu voz): \"${o.gancho||''}\"\\nDesarrolla estos ángulos en párrafos corridos, NO como lista:\\n${(o.puntos_desarrollo||[]).map(p=>'— '+p).join('\\n')}\\n${o.ejemplo_concreto ? 'Ejemplo o anécdota concreta si tienes una: '+o.ejemplo_concreto : ''}\\n${proh ? 'Palabras a evitar en este post: '+proh : ''}`;\nreturn [{ json: { ...$('Combinar Contexto').first().json, outline: o, outline_injection: inj } }];\n"
       },
       "id": "ab80acd4-0323-40a2-9c66-308dc292de2c",
       "name": "Parsear Outline",
@@ -234,11 +235,12 @@
       "position": [
         1712,
         1472
-      ]
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\nif (!raw) throw new Error('Agente Escritor vacío');\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet d;\ntry { d = JSON.parse(s); } catch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/);\n  if (!m) throw new Error('Sin JSON en Escritor: '+s.substring(0,200));\n  let t = m[0];\n  const op=(t.match(/\\{/g)||[]).length, cl=(t.match(/\\}/g)||[]).length;\n  for(let i=0;i<op-cl;i++) t+='}';\n  d = JSON.parse(t);\n}\nif (!d.post_text || d.post_text.length < 200) throw new Error('post_text muy corto: '+(d.post_text||'').length);\nconst prev = $('Parsear Outline').first().json;\nreturn [{ json: { ...prev, draft: d, draft_json_str: JSON.stringify(d) } }];\n"
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || '';\n\n// Propagate upstream error\nconst prev = $('Parsear Outline').first().json;\nif (prev._agent_error) {\n  return [{ json: { ...prev, draft: { post_text: '' }, draft_json_str: '{}' } }];\n}\n\n// Agent failed\nif (!raw || raw.trim().length < 10) {\n  return [{ json: { ...prev, draft: { post_text: '' }, draft_json_str: '{}',\n    _agent_error: 'Agente Escritor no respondió (Ollama caído o timeout)' } }];\n}\n\nlet s = raw.trim().replace(/```json\\s*/gi,'').replace(/```/g,'').trim();\nconst tm = s.match(/<\\/think>\\s*([\\s\\S]*)/); if (tm) s = tm[1].trim();\nlet d;\ntry { d = JSON.parse(s); } catch(e) {\n  const m = s.match(/\\{[\\s\\S]*\\}/);\n  if (!m) {\n    return [{ json: { ...prev, draft: { post_text: '' }, draft_json_str: '{}',\n      _agent_error: 'Escritor JSON inválido: ' + s.substring(0,100) } }];\n  }\n  let t = m[0];\n  const op=(t.match(/\\{/g)||[]).length, cl=(t.match(/\\}/g)||[]).length;\n  for(let i=0;i<op-cl;i++) t+='}';\n  try { d = JSON.parse(t); } catch(e2) {\n    return [{ json: { ...prev, draft: { post_text: '' }, draft_json_str: '{}',\n      _agent_error: 'Escritor JSON inválido (2): ' + t.substring(0,100) } }];\n  }\n}\nif (!d.post_text || d.post_text.length < 200) {\n  return [{ json: { ...prev, draft: { post_text: '' }, draft_json_str: '{}',\n    _agent_error: 'post_text muy corto: ' + (d.post_text||'').length + ' chars' } }];\n}\nreturn [{ json: { ...prev, draft: d, draft_json_str: JSON.stringify(d) } }];\n"
       },
       "id": "8519b842-7c68-42ba-801c-325bc0266ad5",
       "name": "Parsear Draft",
@@ -285,7 +287,8 @@
       "position": [
         2224,
         1472
-      ]
+      ],
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -302,7 +305,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst data = $json;\nconst texto = data.post_text || '';\nlet score = 100;\nconst problemas = [];\nif (texto.length > 2700) { score -= 20; problemas.push('Largo: '+texto.length); }\nelse if (texto.length < 500) { score -= 35; problemas.push('Corto: '+texto.length); }\n['en el mundo actual','es fundamental','la clave está en','es importante','cada vez más',\n 'sin lugar a dudas','definitivamente','en definitiva','no es casualidad','más allá de',\n 'lo que muchos no saben','esto nos lleva','cabe mencionar','vale la pena destacar',\n 'sinergia','disruptivo','transformacional','paradigma','ecosistema','empoderamiento'\n].forEach(f => { if (texto.toLowerCase().includes(f)) { score-=8; problemas.push(`IA:\"${f}\"`); } });\nif (/\\p{Emoji_Presentation}/u.test(texto)) { score-=25; problemas.push('Emojis'); }\nconst excl = (texto.match(/!/g)||[]).length;\nif (excl>0) { score-=excl*15; problemas.push(`${excl} exclamaciones`); }\nif (texto.split('\\n\\n').filter(p=>p.trim()).length < 3) { score-=15; problemas.push('Pocos párrafos'); }\nif (/^(tema|tono|tipo|área|profundidad):/im.test(texto)) { score-=30; problemas.push('Metadata en texto'); }\nif (texto.trim().startsWith('#')) { score-=20; problemas.push('Empieza con #'); }\nscore = Math.max(0, score);\nreturn [{ json: { ...data, calidad_score: score, calidad_pasa: score >= 55, calidad_problemas: problemas,\n  calidad_label: score>=80?'🟢 Bueno':score>=55?'🟡 Aceptable':'🔴 Bajo' } }];\n"
+        "jsCode": "\nconst data = $json;\nconst texto = data.post_text || '';\n\n// Fail fast if any upstream agent failed\nif (data._agent_error) {\n  return [{ json: { ...data, calidad_score: 0, calidad_pasa: false,\n    calidad_problemas: [data._agent_error],\n    calidad_label: '🔴 Error' } }];\n}\n\nlet score = 100;\nconst problemas = [];\nif (texto.length > 2700) { score -= 20; problemas.push('Largo: '+texto.length); }\nelse if (texto.length < 500) { score -= 35; problemas.push('Corto: '+texto.length); }\n['en el mundo actual','es fundamental','la clave está en','es importante','cada vez más',\n 'sin lugar a dudas','definitivamente','en definitiva','no es casualidad','más allá de',\n 'lo que muchos no saben','esto nos lleva','cabe mencionar','vale la pena destacar',\n 'sinergia','disruptivo','transformacional','paradigma','ecosistema','empoderamiento'\n].forEach(f => { if (texto.toLowerCase().includes(f)) { score-=8; problemas.push(`IA:\"${f}\"`); } });\nif (/\\p{Emoji_Presentation}/u.test(texto)) { score-=25; problemas.push('Emojis'); }\nconst excl = (texto.match(/!/g)||[]).length;\nif (excl>0) { score-=excl*15; problemas.push(`${excl} exclamaciones`); }\nif (texto.split('\\n\\n').filter(p=>p.trim()).length < 3) { score-=15; problemas.push('Pocos párrafos'); }\nif (/^(tema|tono|tipo|área|profundidad):/im.test(texto)) { score-=30; problemas.push('Metadata en texto'); }\nif (texto.trim().startsWith('#')) { score-=20; problemas.push('Empieza con #'); }\nscore = Math.max(0, score);\nreturn [{ json: { ...data, calidad_score: score, calidad_pasa: score >= 55, calidad_problemas: problemas,\n  calidad_label: score>=80?'🟢 Bueno':score>=55?'🟡 Aceptable':'🔴 Bajo' } }];\n"
       },
       "id": "75936e5c-d370-4710-b132-6cd592d46fda",
       "name": "Validar Calidad",
@@ -324,10 +327,10 @@
               "id": "c55892f9-4448-4f2b-b17c-682530dc87d9",
               "leftValue": "={{ $json.calidad_pasa }}",
               "operator": {
-                "type": "string",
-                "operation": "equals"
+                "type": "boolean",
+                "operation": "true"
               },
-              "rightValue": "true"
+              "rightValue": ""
             }
           ]
         },
