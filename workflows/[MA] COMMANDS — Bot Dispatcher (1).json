@@ -303,7 +303,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://n8n.camiloayala.net/webhook/ma-writer-callback",
+        "url": "http://localhost:5678/webhook/ma-writer-callback",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ $json.full_body }}",
